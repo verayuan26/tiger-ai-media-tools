@@ -382,6 +382,7 @@ describe('repositories', () => {
          values (?, ?, ?, 'pending', 0, null, ?, ?)`
       ).run('job-a', asset.id, 'metadata', NOW, NOW);
 
+      expect(repos.jobs.listForAsset(asset.id).map((job) => job.id)).toEqual(['job-a', 'job-b']);
       expect(repos.jobs.nextPending()?.id).toBe('job-a');
       expect(repos.jobs.claimNextPending()?.id).toBe('job-a');
     } finally {

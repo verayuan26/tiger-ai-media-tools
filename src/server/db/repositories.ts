@@ -331,7 +331,7 @@ export function createRepositories(db: LibraryDatabase) {
 
     listForAsset(assetId: string): AnalysisJob[] {
       return db
-        .prepare('select * from analysis_jobs where asset_id = ? order by created_at')
+        .prepare('select * from analysis_jobs where asset_id = ? order by created_at, id')
         .all(assetId)
         .map((row) => mapJob(row as Row));
     },
