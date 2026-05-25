@@ -1,6 +1,19 @@
-import { describe, expect, it } from 'vitest';
-import { parseFfprobeDuration, safeFrameFileStem } from '../media/ffmpeg';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { extractVideoFrames, parseFfprobeDuration, probeMedia, safeFrameFileStem } from '../media/ffmpeg';
 import { planFrameTimestamps } from '../media/framePlan';
+
+const execaMock = vi.hoisted(() => vi.fn());
+
+vi.mock('execa', () => ({
+  execa: execaMock
+}));
+
+beforeEach(() => {
+  execaMock.mockReset();
+});
 
 describe('planFrameTimestamps', () => {
   it('uses interval fallback for normal mode', () => {
@@ -78,5 +91,115 @@ describe('safeFrameFileStem', () => {
 
   it('falls back when an asset id has no safe filename characters', () => {
     expect(safeFrameFileStem('../')).toBe('asset');
+  });
+});
+
+describe('probeMedia', () => {
+  it('invokes ffprobe with the intended args and parses media metadata', async () => {
+    execaMock.mockResolvedValueOnce({
+      stdout: JSON.stringify({
+        format: { duration: '42.5' },
+        streams: [{ width: 1920, height: 1080 }]
+      })
+    });
+
+    await expect(probeMedia('/input/video.mp4')).resolves.toEqual({
+      durationSeconds: 42.5,
+      width: 1920,
+      height: 1080
+    });
+    expect(execaMock).toHaveBeenCalledTimes(1);
+    expect(execaMock).toHaveBeenCalledWith('ffprobe', [
+      '-v',
+      'error',
+      '-show_entries',
+      'format=duration:stream=width,height',
+      '-of',
+      'json',
+      '/input/video.mp4'
+    ]);
+  });
+
+  it('returns null duration for invalid ffprobe duration metadata', async () => {
+    execaMock.mockResolvedValueOnce({
+      stdout: JSON.stringify({
+        format: { duration: 'N/A' },
+        streams: [{ width: 640, height: 360 }]
+      })
+    });
+
+    await expect(probeMedia('/input/odd-video.mp4')).resolves.toEqual({
+      durationSeconds: null,
+      width: 640,
+      height: 360
+    });
+  });
+});
+
+describe('extractVideoFrames', () => {
+  it('invokes ffmpeg once per planned timestamp and returns sanitized output frame records', async () => {
+    execaMock.mockResolvedValue({ stdout: '' });
+    const outputDir = await mkdtemp(path.join(os.tmpdir(), 'ai-media-frames-'));
+
+    try {
+      const frames = await extractVideoFrames({
+        filePath: '/input/video.mp4',
+        assetId: '../foo/bar',
+        durationSeconds: 16,
+        outputDir,
+        mode: 'balanced'
+      });
+
+      const expectedFrames = [0, 8, 16].map((timestamp) => ({
+        timestampSeconds: timestamp,
+        thumbnailPath: path.join(outputDir, `foo-bar-${timestamp}.jpg`)
+      }));
+
+      expect(frames).toEqual(expectedFrames);
+      expect(execaMock).toHaveBeenCalledTimes(3);
+      for (const frame of frames) {
+        expect(frame.thumbnailPath.startsWith(`${outputDir}${path.sep}`)).toBe(true);
+        expect(path.relative(outputDir, frame.thumbnailPath).startsWith('..')).toBe(false);
+        expect(path.dirname(frame.thumbnailPath)).toBe(outputDir);
+      }
+      expect(execaMock).toHaveBeenNthCalledWith(1, 'ffmpeg', [
+        '-y',
+        '-ss',
+        '0',
+        '-i',
+        '/input/video.mp4',
+        '-frames:v',
+        '1',
+        '-vf',
+        'scale=480:-1',
+        path.join(outputDir, 'foo-bar-0.jpg')
+      ]);
+      expect(execaMock).toHaveBeenNthCalledWith(2, 'ffmpeg', [
+        '-y',
+        '-ss',
+        '8',
+        '-i',
+        '/input/video.mp4',
+        '-frames:v',
+        '1',
+        '-vf',
+        'scale=480:-1',
+        path.join(outputDir, 'foo-bar-8.jpg')
+      ]);
+      expect(execaMock).toHaveBeenNthCalledWith(3, 'ffmpeg', [
+        '-y',
+        '-ss',
+        '16',
+        '-i',
+        '/input/video.mp4',
+        '-frames:v',
+        '1',
+        '-vf',
+        'scale=480:-1',
+        path.join(outputDir, 'foo-bar-16.jpg')
+      ]);
+    } finally {
+      await rm(outputDir, { force: true, recursive: true });
+    }
   });
 });
