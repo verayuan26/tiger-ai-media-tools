@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from '../db/connection';
+import { createId, createRepositories, normalizeTagName } from '../db/repositories';
 
 let tempDir: string | null = null;
 const NOW = '2026-05-26T00:00:00.000Z';
@@ -242,6 +243,63 @@ describe('database schema', () => {
           .prepare('select count(*) as count from asset_tags where id = ?')
           .get('asset-tag-asset')
       ).toEqual({ count: 0 });
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe('repositories', () => {
+  it('upserts sources, assets, jobs, tags, frames, and transcripts', () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
+    const db = openDatabase(path.join(tempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    try {
+      expect(createId('test')).toMatch(/^test_/);
+
+      const source = repos.sources.upsertSource({
+        name: 'Factory',
+        rootPath: '/tmp/factory'
+      });
+
+      const asset = repos.assets.upsertAsset({
+        sourceId: source.id,
+        path: '/tmp/factory/cut.mp4',
+        fileName: 'cut.mp4',
+        kind: 'video',
+        extension: '.mp4',
+        sizeBytes: 12,
+        hash: 'abc',
+        modifiedAt: '2026-05-25T00:00:00.000Z'
+      });
+
+      repos.assets.setMetadata(asset.id, {
+        durationSeconds: 10,
+        width: 1920,
+        height: 1080,
+        thumbnailPath: '.data/thumbs/cut.jpg',
+        status: 'done'
+      });
+      repos.assets.setMetadata(asset.id, { thumbnailPath: null });
+
+      repos.jobs.ensureJobs(asset.id, ['metadata', 'thumbnail', 'frames', 'ai_vision']);
+      repos.frames.replaceFrames(asset.id, [
+        { timestampSeconds: 3, thumbnailPath: '.data/thumbs/cut-3.jpg', strategy: 'interval' }
+      ]);
+      repos.transcripts.replaceSegments(asset.id, [
+        { startSeconds: 1, endSeconds: 4, language: 'zh', text: '这块面料先裁开', translation: null }
+      ]);
+      repos.tags.assignAssetTag(asset.id, '裁剪布料', 'ai', 0.91);
+
+      const found = repos.assets.searchAssets({ tagNames: ['裁剪布料'], transcript: '面料' });
+
+      expect(found).toHaveLength(1);
+      expect(found[0]?.fileName).toBe('cut.mp4');
+      expect(found[0]?.durationSeconds).toBe(10);
+      expect(found[0]?.thumbnailPath).toBeNull();
+      expect(repos.jobs.summary()).toMatchObject({ pending: 4, processing: 0, failed: 0 });
+      expect(normalizeTagName(' Denim Fabric ')).toBe('denim fabric');
     } finally {
       db.close();
     }
