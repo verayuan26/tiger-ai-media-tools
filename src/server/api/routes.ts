@@ -1,3 +1,6 @@
+import { constants } from 'node:fs';
+import { access, stat } from 'node:fs/promises';
+import path from 'node:path';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { createRepositories } from '../db/repositories';
@@ -41,6 +44,7 @@ export function createApiRouter(context: ApiRouteContext): Router {
     '/sources/import',
     asyncHandler(async (req, res) => {
       const input = importSourceSchema.parse(req.body);
+      await assertReadableDirectory(input.rootPath);
       const result = await importSourceDirectory(context.repos, input);
       res.json(result);
     })
@@ -109,6 +113,23 @@ function asyncHandler(
   return (req, res, next) => {
     handler(req, res, next).catch(next);
   };
+}
+
+async function assertReadableDirectory(rootPath: string): Promise<void> {
+  const resolvedRootPath = path.resolve(rootPath);
+
+  try {
+    const rootStat = await stat(resolvedRootPath);
+    if (!rootStat.isDirectory()) {
+      throw new HttpError(400, 'Import root must be an existing readable directory');
+    }
+
+    await access(resolvedRootPath, constants.R_OK);
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+
+    throw new HttpError(400, 'Import root must be an existing readable directory');
+  }
 }
 
 function normalizeQueryList(value: unknown): string[] | undefined {

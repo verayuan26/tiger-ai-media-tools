@@ -100,6 +100,15 @@ describe('local API server', () => {
     await request(app).get('/api/assets/missing-asset').expect(404);
   });
 
+  it('returns JSON 404 for unmatched API routes', async () => {
+    const { dataDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    const response = await request(app).get('/api/nope').expect(404);
+
+    expect(response.body).toEqual({ error: { message: 'Not found' } });
+  });
+
   it('returns changed count when retrying failed jobs', async () => {
     const { dataDir } = createTempSource();
     const app = createTestApp(dataDir);
@@ -244,6 +253,23 @@ describe('local API server', () => {
       .expect(400);
 
     expect(response.body.error.message).toBe('Invalid request');
+  });
+
+  it('rejects missing import roots without creating a source', async () => {
+    const { dataDir } = createTempSource();
+    const app = createTestApp(dataDir);
+    const missingSourceDir = path.join(dataDir, 'missing-source');
+
+    const response = await request(app)
+      .post('/api/sources/import')
+      .send({ rootPath: missingSourceDir, name: 'Missing source' })
+      .expect(400);
+
+    expect(response.body).toEqual({ error: { message: 'Import root must be an existing readable directory' } });
+
+    const sourcesResponse = await request(app).get('/api/sources').expect(200);
+
+    expect(sourcesResponse.body.sources).toEqual([]);
   });
 
   it('returns 400 JSON error for malformed JSON bodies', async () => {

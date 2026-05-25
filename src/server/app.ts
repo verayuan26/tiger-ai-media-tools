@@ -34,6 +34,7 @@ export function createApp(overrides: ConfigOverrides = {}) {
   app.use('/api', createApiMutationGuard(allowedOrigins));
   app.use(express.json({ limit: '2mb' }));
   app.use('/api', createApiRouter({ repos, aiProvider, dataDir: config.dataDir }));
+  app.use('/api', createApiNotFoundHandler());
   app.use('/media/frames', express.static(path.join(config.dataDir, 'frames')));
   app.use(express.static(path.resolve('dist/client')));
   app.use(jsonErrorHandler);
@@ -77,6 +78,12 @@ function createApiMutationGuard(allowedOrigins: Set<string>): RequestHandler {
     }
 
     next();
+  };
+}
+
+function createApiNotFoundHandler(): RequestHandler {
+  return (_req, _res, next) => {
+    next(new HttpError(404, 'Not found'));
   };
 }
 
