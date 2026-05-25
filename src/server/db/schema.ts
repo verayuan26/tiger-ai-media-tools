@@ -101,4 +101,50 @@ create index if not exists idx_frames_asset on video_frames(asset_id);
 create index if not exists idx_transcripts_asset on transcript_segments(asset_id);
 create index if not exists idx_jobs_status on analysis_jobs(status);
 create index if not exists idx_jobs_asset on analysis_jobs(asset_id);
+
+create trigger if not exists asset_tags_validate_asset_target_insert
+before insert on asset_tags
+when new.target_type = 'asset'
+  and not exists (select 1 from assets where id = new.target_id)
+begin
+  select raise(abort, 'asset_tags target asset does not exist');
+end;
+
+create trigger if not exists asset_tags_validate_frame_target_insert
+before insert on asset_tags
+when new.target_type = 'frame'
+  and not exists (select 1 from video_frames where id = new.target_id)
+begin
+  select raise(abort, 'asset_tags target frame does not exist');
+end;
+
+create trigger if not exists asset_tags_validate_asset_target_update
+before update of target_type, target_id on asset_tags
+when new.target_type = 'asset'
+  and not exists (select 1 from assets where id = new.target_id)
+begin
+  select raise(abort, 'asset_tags target asset does not exist');
+end;
+
+create trigger if not exists asset_tags_validate_frame_target_update
+before update of target_type, target_id on asset_tags
+when new.target_type = 'frame'
+  and not exists (select 1 from video_frames where id = new.target_id)
+begin
+  select raise(abort, 'asset_tags target frame does not exist');
+end;
+
+create trigger if not exists asset_tags_delete_asset_target
+after delete on assets
+begin
+  delete from asset_tags
+  where target_type = 'asset' and target_id = old.id;
+end;
+
+create trigger if not exists asset_tags_delete_frame_target
+after delete on video_frames
+begin
+  delete from asset_tags
+  where target_type = 'frame' and target_id = old.id;
+end;
 `;
