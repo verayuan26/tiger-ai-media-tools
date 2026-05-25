@@ -111,6 +111,35 @@ describe('job runner', () => {
     }
   });
 
+  it('replaces stale AI vision tags on rerun while preserving user tags', async () => {
+    const aiProvider: AiProvider = {
+      analyzeImage: vi
+        .fn()
+        .mockResolvedValueOnce({ tags: [{ displayName: '旧AI标签', confidence: 0.7 }] })
+        .mockResolvedValueOnce({ tags: [{ displayName: '新AI标签', confidence: 0.91 }] }),
+      transcribeAudio: vi.fn()
+    };
+    const { db, repos, context } = createTestContext(aiProvider);
+
+    try {
+      const asset = createAsset(repos);
+      repos.tags.assignAssetTag(asset.id, '人工保留', 'user', null);
+      repos.jobs.ensureJobs(asset.id, ['ai_vision']);
+
+      await expect(processNextJob(context)).resolves.toBe(true);
+      expect(repos.assets.searchAssets({ tagNames: ['旧AI标签'] }).map((found) => found.id)).toEqual([asset.id]);
+
+      repos.jobs.resetJobs(asset.id, ['ai_vision']);
+      await expect(processNextJob(context)).resolves.toBe(true);
+
+      expect(repos.assets.searchAssets({ tagNames: ['旧AI标签'] })).toEqual([]);
+      expect(repos.assets.searchAssets({ tagNames: ['新AI标签'] }).map((found) => found.id)).toEqual([asset.id]);
+      expect(repos.assets.searchAssets({ tagNames: ['人工保留'] }).map((found) => found.id)).toEqual([asset.id]);
+    } finally {
+      closeDb(db);
+    }
+  });
+
   it('drains up to the requested limit and reports no work when the queue is empty', async () => {
     const { db, repos, context } = createTestContext();
 

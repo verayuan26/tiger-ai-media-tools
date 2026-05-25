@@ -55,6 +55,11 @@ interface TranscriptInput {
   translation: string | null;
 }
 
+interface AssetTagInput {
+  displayName: string;
+  confidence: number | null;
+}
+
 export function createId(prefix: string): string {
   return `${prefix}_${randomUUID()}`;
 }
@@ -518,6 +523,23 @@ export function createRepositories(db: LibraryDatabase) {
            ?
          )`
       ).run(assetId, tagId, createId('atag'), assetId, tagId, confidence);
+    },
+
+    replaceAiAssetTags(assetId: string, input: AssetTagInput[]): void {
+      const replace = db.transaction(() => {
+        db.prepare(
+          `delete from asset_tags
+           where target_type = 'asset'
+             and target_id = ?
+             and tag_id in (select id from tags where source = 'ai')`
+        ).run(assetId);
+
+        for (const tag of input) {
+          tags.assignAssetTag(assetId, tag.displayName, 'ai', tag.confidence);
+        }
+      });
+
+      replace();
     },
 
     clearGeneratedForAsset(assetId: string): void {

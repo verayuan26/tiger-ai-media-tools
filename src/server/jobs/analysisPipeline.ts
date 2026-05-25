@@ -2,7 +2,7 @@ import path from 'node:path';
 import type { AiProvider } from '../ai/provider';
 import type { createRepositories } from '../db/repositories';
 import { extractVideoFrames, probeMedia } from '../media/ffmpeg';
-import type { AnalysisJob } from '../../shared/types';
+import type { AnalysisJob, JobStage } from '../../shared/types';
 
 export interface AnalysisContext {
   repos: ReturnType<typeof createRepositories>;
@@ -85,9 +85,7 @@ export async function processAnalysisJob(
       const result = await context.aiProvider.analyzeImage({
         imagePath: asset.thumbnailPath ?? asset.path
       });
-      for (const tag of result.tags) {
-        context.repos.tags.assignAssetTag(asset.id, tag.displayName, 'ai', tag.confidence);
-      }
+      context.repos.tags.replaceAiAssetTags(asset.id, result.tags);
       context.repos.assets.setMetadata(asset.id, { status: 'partial' });
       return { status: 'done' };
     }
@@ -98,5 +96,12 @@ export async function processAnalysisJob(
       context.repos.assets.setMetadata(asset.id, { status: 'partial' });
       return { status: 'done' };
     }
+
+    default:
+      return assertUnsupportedStage(job.stage);
   }
+}
+
+function assertUnsupportedStage(stage: never): never {
+  throw new Error(`Unsupported analysis job stage: ${stage as JobStage}`);
 }
