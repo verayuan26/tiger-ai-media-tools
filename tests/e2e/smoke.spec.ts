@@ -1,12 +1,6 @@
-import { execFileSync } from 'node:child_process';
 import { expect, test } from '@playwright/test';
 
 test('imports fixture media and filters cutting assets by tag', async ({ page, request }) => {
-  execFileSync('npm', ['run', 'fixtures'], {
-    stdio: 'inherit',
-    env: { ...process.env, AI_MEDIA_DATA_DIR: '.data/e2e' }
-  });
-
   const importResponse = await request.post('/api/dev/import-fixtures', { data: {} });
   expect(importResponse.ok()).toBe(true);
   expect(await importResponse.json()).toMatchObject({ indexed: 2, skipped: 1 });

@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { Express } from 'express';
 import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
+import { makeFixtures } from '../../../scripts/make-fixtures';
 import { createApp } from '../app';
 import type { LibraryDatabase } from '../db/connection';
 
@@ -126,6 +127,7 @@ describe('local API server', () => {
 
   it('mounts fixture import route when dev routes are enabled', async () => {
     const { dataDir } = createTempSource();
+    await makeFixtures(dataDir);
     const app = createTestAppWithDevRoutes(dataDir);
 
     await request(app).post('/api/dev/import-fixtures').send({}).expect(200);
