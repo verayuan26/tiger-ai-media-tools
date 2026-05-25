@@ -2,6 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createMockAiProvider } from '../ai/mockProvider';
+import { createOpenAiCompatibleProvider } from '../ai/openAiCompatibleProvider';
 import { extractVideoFrames, parseFfprobeDuration, probeMedia, safeFrameFileStem } from '../media/ffmpeg';
 import { planFrameTimestamps } from '../media/framePlan';
 
@@ -201,5 +203,88 @@ describe('extractVideoFrames', () => {
     } finally {
       await rm(outputDir, { force: true, recursive: true });
     }
+  });
+});
+
+describe('createMockAiProvider', () => {
+  it('returns deterministic cutting tags for cutting image names', async () => {
+    const provider = createMockAiProvider();
+
+    await expect(provider.analyzeImage({ imagePath: '/tmp/factory_cutting.jpg' })).resolves.toEqual({
+      tags: [
+        { displayName: '裁剪布料', confidence: 0.88 },
+        { displayName: '牛仔布', confidence: 0.82 }
+      ]
+    });
+  });
+
+  it('returns deterministic sewing tags for sewing image names', async () => {
+    const provider = createMockAiProvider();
+
+    await expect(provider.analyzeImage({ imagePath: '/tmp/sewing_station.jpg' })).resolves.toEqual({
+      tags: [
+        { displayName: '缝纫机', confidence: 0.87 },
+        { displayName: '人物', confidence: 0.76 }
+      ]
+    });
+  });
+
+  it('falls back to a generic material tag for unknown image names', async () => {
+    const provider = createMockAiProvider();
+
+    await expect(provider.analyzeImage({ imagePath: '/tmp/misc.jpg' })).resolves.toEqual({
+      tags: [{ displayName: '素材', confidence: 0.5 }]
+    });
+  });
+
+  it('returns deterministic Russian transcript segments for ru audio names', async () => {
+    const provider = createMockAiProvider();
+
+    await expect(provider.transcribeAudio({ audioPath: '/tmp/worker_talk_ru.wav' })).resolves.toEqual({
+      segments: [
+        {
+          startSeconds: 0,
+          endSeconds: 4,
+          language: 'ru',
+          text: 'Пример разговора о ткани',
+          translation: '关于面料的示例谈话'
+        }
+      ]
+    });
+  });
+
+  it('returns deterministic Chinese transcript segments for non-ru audio names', async () => {
+    const provider = createMockAiProvider();
+
+    await expect(provider.transcribeAudio({ audioPath: '/tmp/worker_talk.wav' })).resolves.toEqual({
+      segments: [
+        {
+          startSeconds: 0,
+          endSeconds: 3,
+          language: 'zh',
+          text: '这是一段关于面料的示例谈话',
+          translation: null
+        }
+      ]
+    });
+  });
+});
+
+describe('createOpenAiCompatibleProvider', () => {
+  it.each([
+    ['baseUrl', 'AI_OPENAI_BASE_URL'],
+    ['apiKey', 'AI_OPENAI_API_KEY'],
+    ['visionModel', 'AI_OPENAI_VISION_MODEL'],
+    ['transcribeModel', 'AI_OPENAI_TRANSCRIBE_MODEL']
+  ] as const)('reports the matching env name when %s is empty', (key, envName) => {
+    expect(() =>
+      createOpenAiCompatibleProvider({
+        baseUrl: 'https://example.test/v1',
+        apiKey: 'test-key',
+        visionModel: 'vision-model',
+        transcribeModel: 'transcribe-model',
+        [key]: ''
+      })
+    ).toThrow(envName);
   });
 });
