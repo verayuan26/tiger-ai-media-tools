@@ -66,7 +66,7 @@ export async function extractVideoFrames(input: {
   const timestamps = planFrameTimestamps({
     durationSeconds: input.durationSeconds,
     mode: input.mode,
-    fallbackIntervalSeconds: 8
+    fallbackIntervalSeconds: 3
   });
 
   const frames: ExtractedFrame[] = [];

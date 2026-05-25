@@ -150,13 +150,13 @@ describe('extractVideoFrames', () => {
         mode: 'balanced'
       });
 
-      const expectedFrames = [0, 8, 16].map((timestamp) => ({
+      const expectedFrames = [0, 3, 6, 9, 12, 15, 16].map((timestamp) => ({
         timestampSeconds: timestamp,
         thumbnailPath: path.join(outputDir, `foo-bar-${timestamp}.jpg`)
       }));
 
       expect(frames).toEqual(expectedFrames);
-      expect(execaMock).toHaveBeenCalledTimes(3);
+      expect(execaMock).toHaveBeenCalledTimes(7);
       for (const frame of frames) {
         expect(frame.thumbnailPath.startsWith(`${outputDir}${path.sep}`)).toBe(true);
         expect(path.relative(outputDir, frame.thumbnailPath).startsWith('..')).toBe(false);
@@ -177,26 +177,26 @@ describe('extractVideoFrames', () => {
       expect(execaMock).toHaveBeenNthCalledWith(2, 'ffmpeg', [
         '-y',
         '-ss',
-        '8',
+        '3',
         '-i',
         '/input/video.mp4',
         '-frames:v',
         '1',
         '-vf',
         'scale=480:-1',
-        path.join(outputDir, 'foo-bar-8.jpg')
+        path.join(outputDir, 'foo-bar-3.jpg')
       ]);
       expect(execaMock).toHaveBeenNthCalledWith(3, 'ffmpeg', [
         '-y',
         '-ss',
-        '16',
+        '6',
         '-i',
         '/input/video.mp4',
         '-frames:v',
         '1',
         '-vf',
         'scale=480:-1',
-        path.join(outputDir, 'foo-bar-16.jpg')
+        path.join(outputDir, 'foo-bar-6.jpg')
       ]);
     } finally {
       await rm(outputDir, { force: true, recursive: true });
