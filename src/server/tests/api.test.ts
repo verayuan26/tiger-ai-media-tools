@@ -120,6 +120,36 @@ describe('local API server', () => {
     expect(retryResponse.body).not.toHaveProperty('retried');
   });
 
+  it('drains jobs with the default limit when posting no body and no content type', async () => {
+    const { dataDir, sourceDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    await request(app).post('/api/sources/import').send({ rootPath: sourceDir, name: 'Factory' }).expect(200);
+
+    const drainResponse = await request(app).post('/api/jobs/drain').expect(200);
+
+    expect(drainResponse.body.processed).toBe(3);
+  });
+
+  it('retries failed jobs when posting no body and no content type', async () => {
+    const { dataDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    const retryResponse = await request(app).post('/api/jobs/retry-failed').expect(200);
+
+    expect(retryResponse.body).toMatchObject({
+      changed: 0,
+      summary: {
+        pending: 0,
+        processing: 0,
+        partial: 0,
+        done: 0,
+        failed: 0,
+        skipped: 0
+      }
+    });
+  });
+
   it('rejects text drain posts from disallowed origins without processing jobs', async () => {
     const { dataDir, sourceDir } = createTempSource();
     const app = createTestApp(dataDir);

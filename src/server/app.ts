@@ -90,10 +90,11 @@ function isMutatingMethod(method: string): boolean {
 
 function requiresJsonContentType(method: string, contentType: string | undefined, contentLength: string | undefined) {
   if (contentType && isJsonContentType(contentType)) return false;
+  if (contentType) return true;
 
-  if (method === 'POST') return true;
+  if (method === 'POST') return Boolean(contentLength && contentLength !== '0');
 
-  return Boolean(contentType || (contentLength && contentLength !== '0'));
+  return Boolean(contentLength && contentLength !== '0');
 }
 
 function isJsonContentType(contentType: string): boolean {
