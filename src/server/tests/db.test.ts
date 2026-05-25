@@ -449,6 +449,43 @@ describe('repositories', () => {
     }
   });
 
+  it('resets requested analysis jobs for an asset', () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
+    const db = openDatabase(path.join(tempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    try {
+      const source = repos.sources.upsertSource({ name: 'Factory', rootPath: '/tmp/factory' });
+      const asset = repos.assets.upsertAsset({
+        sourceId: source.id,
+        path: '/tmp/factory/cut.mp4',
+        fileName: 'cut.mp4',
+        kind: 'video',
+        extension: '.mp4',
+        sizeBytes: 12,
+        hash: 'abc',
+        modifiedAt: '2026-05-25T00:00:00.000Z'
+      });
+
+      const jobs = repos.jobs.ensureJobs(asset.id, ['metadata', 'thumbnail']);
+      repos.jobs.updateStatus(jobs[0].id, 'done');
+      repos.jobs.updateStatus(jobs[1].id, 'failed', 'thumbnail failed');
+
+      const resetJobs = repos.jobs.resetJobs(asset.id, ['metadata', 'thumbnail', 'ai_vision']);
+
+      expect(resetJobs.map((job) => job.stage).sort()).toEqual(['ai_vision', 'metadata', 'thumbnail']);
+      for (const job of resetJobs) {
+        expect(job).toMatchObject({
+          status: 'pending',
+          attempts: 0,
+          errorMessage: null
+        });
+      }
+    } finally {
+      db.close();
+    }
+  });
+
   it('updates tag assignments and replaces frames and transcripts in sorted order', () => {
     tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
     const db = openDatabase(path.join(tempDir, 'library.sqlite'));

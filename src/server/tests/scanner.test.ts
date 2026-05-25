@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach } from 'vitest';
@@ -9,6 +9,7 @@ import { classifyMediaFile } from '../scanner/fileTypes';
 import { importSourceDirectory } from '../scanner/scanner';
 
 let scannerTempDir: string | null = null;
+const sortStages = (stages: string[]) => [...stages].sort();
 
 afterEach(() => {
   if (scannerTempDir) {
@@ -51,6 +52,105 @@ describe('importSourceDirectory', () => {
     expect(result.skipped).toBe(1);
     expect(repos.assets.searchAssets({})).toHaveLength(2);
     expect(repos.jobs.summary().pending).toBeGreaterThan(0);
+    db.close();
+  });
+
+  it('walks nested directories, creates expected stage sets, and marks the source scanned', async () => {
+    scannerTempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-scan-'));
+    const sourceDir = path.join(scannerTempDir, 'factory');
+    const nestedDir = path.join(sourceDir, 'line-a', 'shift-1');
+    mkdirSync(nestedDir, { recursive: true });
+    writeFileSync(path.join(sourceDir, 'photo.jpg'), 'fake image');
+    writeFileSync(path.join(nestedDir, 'cut.mp4'), 'fake video');
+    writeFileSync(path.join(nestedDir, 'audio.wav'), 'fake audio');
+
+    const db = openDatabase(path.join(scannerTempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    const result = await importSourceDirectory(repos, {
+      rootPath: sourceDir,
+      name: 'Factory'
+    });
+
+    const source = repos.sources.getById(result.sourceId);
+    const assets = repos.assets.searchAssets({});
+    const image = assets.find((asset) => asset.fileName === 'photo.jpg');
+    const video = assets.find((asset) => asset.fileName === 'cut.mp4');
+    const audio = assets.find((asset) => asset.fileName === 'audio.wav');
+
+    expect(result.indexed).toBe(3);
+    expect(source?.lastScannedAt).not.toBeNull();
+    expect(image).toBeDefined();
+    expect(video).toBeDefined();
+    expect(audio).toBeDefined();
+    expect(sortStages(repos.jobs.listForAsset(image?.id ?? '').map((job) => job.stage))).toEqual([
+      'ai_vision',
+      'metadata',
+      'thumbnail'
+    ]);
+    expect(sortStages(repos.jobs.listForAsset(video?.id ?? '').map((job) => job.stage))).toEqual([
+      'ai_transcript',
+      'ai_vision',
+      'audio',
+      'frames',
+      'metadata',
+      'thumbnail'
+    ]);
+    expect(sortStages(repos.jobs.listForAsset(audio?.id ?? '').map((job) => job.stage))).toEqual(['metadata']);
+    db.close();
+  });
+
+  it('does not reset completed asset or job state when an unchanged file is re-imported', async () => {
+    scannerTempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-scan-'));
+    const sourceDir = path.join(scannerTempDir, 'factory');
+    mkdirSync(sourceDir);
+    writeFileSync(path.join(sourceDir, 'photo.jpg'), 'fake image');
+
+    const db = openDatabase(path.join(scannerTempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    await importSourceDirectory(repos, { rootPath: sourceDir, name: 'Factory' });
+    const asset = repos.assets.searchAssets({})[0];
+    repos.assets.setMetadata(asset.id, { status: 'done' });
+    for (const job of repos.jobs.listForAsset(asset.id)) {
+      repos.jobs.updateStatus(job.id, 'done');
+    }
+
+    await importSourceDirectory(repos, { rootPath: sourceDir, name: 'Factory' });
+
+    expect(repos.assets.getById(asset.id)?.status).toBe('done');
+    expect(repos.jobs.listForAsset(asset.id).map((job) => job.status)).toEqual(['done', 'done', 'done']);
+    expect(repos.jobs.summary().pending).toBe(0);
+    db.close();
+  });
+
+  it('updates a changed existing file and requeues its analysis jobs', async () => {
+    scannerTempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-scan-'));
+    const sourceDir = path.join(scannerTempDir, 'factory');
+    const filePath = path.join(sourceDir, 'photo.jpg');
+    mkdirSync(sourceDir);
+    writeFileSync(filePath, 'fake image');
+
+    const db = openDatabase(path.join(scannerTempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    await importSourceDirectory(repos, { rootPath: sourceDir, name: 'Factory' });
+    const asset = repos.assets.searchAssets({})[0];
+    repos.assets.setMetadata(asset.id, { status: 'done' });
+    for (const job of repos.jobs.listForAsset(asset.id)) {
+      repos.jobs.updateStatus(job.id, 'done');
+    }
+
+    writeFileSync(filePath, 'fake image changed');
+    const changedTime = new Date('2026-05-26T10:00:00.000Z');
+    utimesSync(filePath, changedTime, changedTime);
+    await importSourceDirectory(repos, { rootPath: sourceDir, name: 'Factory' });
+
+    const updated = repos.assets.getById(asset.id);
+    expect(updated?.status).toBe('pending');
+    expect(updated?.hash).not.toBe(asset.hash);
+    expect(repos.jobs.listForAsset(asset.id).map((job) => job.status)).toEqual(['pending', 'pending', 'pending']);
+    expect(repos.jobs.summary().pending).toBe(3);
     db.close();
   });
 });

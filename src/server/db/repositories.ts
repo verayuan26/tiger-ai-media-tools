@@ -231,6 +231,11 @@ export function createRepositories(db: LibraryDatabase) {
       return row ? mapAsset(row) : null;
     },
 
+    getByPath(filePath: string): Asset | null {
+      const row = db.prepare('select * from assets where path = ?').get(filePath) as Row | undefined;
+      return row ? mapAsset(row) : null;
+    },
+
     setMetadata(id: string, metadata: MetadataInput): void {
       const current = assets.getById(id);
       if (!current) return;
@@ -327,6 +332,25 @@ export function createRepositories(db: LibraryDatabase) {
       }
 
       return jobs.listForAsset(assetId);
+    },
+
+    resetJobs(assetId: string, stages: JobStage[]): AnalysisJob[] {
+      const timestamp = nowIso();
+      const reset = db.transaction(() => {
+        jobs.ensureJobs(assetId, stages);
+        db.prepare(
+          `update analysis_jobs
+           set status = 'pending',
+               attempts = 0,
+               error_message = null,
+               updated_at = ?
+           where asset_id = ?
+             and stage in (${stages.map(() => '?').join(', ')})`
+        ).run(timestamp, assetId, ...stages);
+      });
+
+      reset();
+      return jobs.listForAsset(assetId).filter((job) => stages.includes(job.stage));
     },
 
     listForAsset(assetId: string): AnalysisJob[] {

@@ -68,6 +68,21 @@ export async function importSourceDirectory(
     }
 
     const fileStat = await stat(filePath);
+    const fileHash = await hashFile(filePath);
+    const modifiedAt = fileStat.mtime.toISOString();
+    const existing = repos.assets.getByPath(filePath);
+    const stages = stagesForKind(classified.kind);
+
+    if (
+      existing &&
+      existing.sizeBytes === fileStat.size &&
+      existing.hash === fileHash &&
+      existing.modifiedAt === modifiedAt
+    ) {
+      indexed += 1;
+      continue;
+    }
+
     const asset = repos.assets.upsertAsset({
       sourceId: source.id,
       path: filePath,
@@ -75,10 +90,14 @@ export async function importSourceDirectory(
       kind: classified.kind,
       extension: classified.extension,
       sizeBytes: fileStat.size,
-      hash: await hashFile(filePath),
-      modifiedAt: fileStat.mtime.toISOString()
+      hash: fileHash,
+      modifiedAt
     });
-    repos.jobs.ensureJobs(asset.id, stagesForKind(asset.kind));
+    if (existing) {
+      repos.jobs.resetJobs(asset.id, stages);
+    } else {
+      repos.jobs.ensureJobs(asset.id, stages);
+    }
     indexed += 1;
   }
 
