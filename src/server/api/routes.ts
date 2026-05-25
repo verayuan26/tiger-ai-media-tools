@@ -87,8 +87,8 @@ export function createApiRouter(context: ApiRouteContext): Router {
 
   router.post('/jobs/retry-failed', (req, res) => {
     const { assetId } = retryFailedSchema.parse(req.body ?? {});
-    const retried = context.repos.jobs.retryFailed(assetId);
-    res.json({ retried, summary: context.repos.jobs.summary() });
+    const changed = context.repos.jobs.retryFailed(assetId);
+    res.json({ changed, summary: context.repos.jobs.summary() });
   });
 
   return router;

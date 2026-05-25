@@ -69,4 +69,24 @@ describe('local API server', () => {
 
     await request(app).get('/api/assets/missing-asset').expect(404);
   });
+
+  it('returns changed count when retrying failed jobs', async () => {
+    const { dataDir } = createTempSource();
+    const app = createApp({ dataDir, aiProviderName: 'mock' });
+
+    const retryResponse = await request(app).post('/api/jobs/retry-failed').send({}).expect(200);
+
+    expect(retryResponse.body).toMatchObject({
+      changed: 0,
+      summary: {
+        pending: 0,
+        processing: 0,
+        partial: 0,
+        done: 0,
+        failed: 0,
+        skipped: 0
+      }
+    });
+    expect(retryResponse.body).not.toHaveProperty('retried');
+  });
 });
