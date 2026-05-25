@@ -120,6 +120,62 @@ describe('local API server', () => {
     expect(retryResponse.body).not.toHaveProperty('retried');
   });
 
+  it('rejects text drain posts from disallowed origins without processing jobs', async () => {
+    const { dataDir, sourceDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    await request(app).post('/api/sources/import').send({ rootPath: sourceDir, name: 'Factory' }).expect(200);
+
+    await request(app)
+      .post('/api/jobs/drain')
+      .set('Origin', 'https://example.com')
+      .set('Content-Type', 'text/plain')
+      .send('limit=5')
+      .expect(403);
+
+    const drainResponse = await request(app)
+      .post('/api/jobs/drain')
+      .set('Origin', 'http://localhost:5173')
+      .send({ limit: 5 })
+      .expect(200);
+
+    expect(drainResponse.body.processed).toBe(3);
+  });
+
+  it('drains jobs for allowed origins with a JSON body', async () => {
+    const { dataDir, sourceDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    await request(app).post('/api/sources/import').send({ rootPath: sourceDir, name: 'Factory' }).expect(200);
+
+    const drainResponse = await request(app)
+      .post('/api/jobs/drain')
+      .set('Origin', 'http://127.0.0.1:5173')
+      .send({ limit: 5 })
+      .expect(200);
+
+    expect(drainResponse.body.processed).toBe(3);
+  });
+
+  it('rejects text drain posts without an origin and without processing jobs', async () => {
+    const { dataDir, sourceDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    await request(app).post('/api/sources/import').send({ rootPath: sourceDir, name: 'Factory' }).expect(200);
+
+    const response = await request(app)
+      .post('/api/jobs/drain')
+      .set('Content-Type', 'text/plain')
+      .send('limit=5')
+      .expect(415);
+
+    expect(response.body).toEqual({ error: { message: 'JSON request body required' } });
+
+    const drainResponse = await request(app).post('/api/jobs/drain').send({ limit: 5 }).expect(200);
+
+    expect(drainResponse.body.processed).toBe(3);
+  });
+
   it('does not emit CORS allow-origin for disallowed origins', async () => {
     const { dataDir } = createTempSource();
     const app = createTestApp(dataDir);
