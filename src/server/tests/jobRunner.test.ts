@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AiProvider } from '../ai/provider';
 import { createMockAiProvider } from '../ai/mockProvider';
 import { openDatabase, type LibraryDatabase } from '../db/connection';
@@ -10,7 +10,19 @@ import { drainQueue, processNextJob } from '../jobs/jobRunner';
 import type { AnalysisContext } from '../jobs/analysisPipeline';
 import type { JobStage, MediaKind } from '../../shared/types';
 
+const mediaMock = vi.hoisted(() => ({
+  extractVideoFrames: vi.fn(),
+  probeMedia: vi.fn()
+}));
+
+vi.mock('../media/ffmpeg', () => mediaMock);
+
 let tempDir: string | null = null;
+
+beforeEach(() => {
+  mediaMock.extractVideoFrames.mockReset();
+  mediaMock.probeMedia.mockReset();
+});
 
 afterEach(() => {
   if (tempDir) {
@@ -177,6 +189,69 @@ describe('job runner', () => {
       });
       expect(repos.frames.listForAsset(asset.id)).toEqual([]);
       expect(repos.assets.getById(asset.id)).toMatchObject({ status: 'done' });
+    } finally {
+      closeDb(db);
+    }
+  });
+
+  it('processes video analysis stages in dependency order', async () => {
+    const calls: string[] = [];
+    const aiProvider: AiProvider = {
+      analyzeImage: vi.fn(async () => {
+        calls.push('ai_vision');
+        return { tags: [] };
+      }),
+      transcribeAudio: vi.fn(async () => {
+        calls.push('ai_transcript');
+        return { segments: [] };
+      })
+    };
+    const { db, repos, context } = createTestContext(aiProvider);
+
+    try {
+      mediaMock.probeMedia.mockImplementation(async () => {
+        calls.push('metadata');
+        return { durationSeconds: 30, width: 1920, height: 1080 };
+      });
+      mediaMock.extractVideoFrames.mockImplementation(async () => {
+        calls.push('frames');
+        return [{ timestampSeconds: 0, thumbnailPath: '/tmp/factory-tour-0.jpg' }];
+      });
+      const asset = createAsset(repos, {
+        fileName: 'factory-tour.mp4',
+        kind: 'video',
+        path: '/tmp/factory/factory-tour.mp4',
+        extension: '.mp4'
+      });
+      repos.jobs.ensureJobs(asset.id, ['ai_vision', 'frames', 'thumbnail', 'ai_transcript', 'audio', 'metadata']);
+
+      await expect(drainQueue(context, 10)).resolves.toBe(6);
+
+      expect(calls).toEqual(['metadata', 'frames', 'ai_vision', 'ai_transcript']);
+      expect(mediaMock.extractVideoFrames).toHaveBeenCalledWith(
+        expect.objectContaining({
+          assetId: asset.id,
+          durationSeconds: 30,
+          filePath: '/tmp/factory/factory-tour.mp4',
+          mode: 'balanced'
+        })
+      );
+      expect(repos.jobs.listForAsset(asset.id).map((job) => job.stage)).toEqual([
+        'metadata',
+        'thumbnail',
+        'frames',
+        'audio',
+        'ai_vision',
+        'ai_transcript'
+      ]);
+      expect(repos.jobs.listForAsset(asset.id).map((job) => job.status)).toEqual([
+        'done',
+        'done',
+        'done',
+        'done',
+        'done',
+        'done'
+      ]);
     } finally {
       closeDb(db);
     }

@@ -390,6 +390,44 @@ describe('repositories', () => {
     }
   });
 
+  it('claims tied pending jobs by media stage priority before id order', () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
+    const db = openDatabase(path.join(tempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    try {
+      const source = repos.sources.upsertSource({ name: 'Factory', rootPath: '/tmp/factory' });
+      const asset = repos.assets.upsertAsset({
+        sourceId: source.id,
+        path: '/tmp/factory/cut.mp4',
+        fileName: 'cut.mp4',
+        kind: 'video',
+        extension: '.mp4',
+        sizeBytes: 12,
+        hash: 'abc',
+        modifiedAt: '2026-05-25T00:00:00.000Z'
+      });
+      const insert = db.prepare(
+        `insert into analysis_jobs
+          (id, asset_id, stage, status, attempts, error_message, created_at, updated_at)
+         values (?, ?, ?, 'pending', 0, null, ?, ?)`
+      );
+
+      insert.run('job-a', asset.id, 'ai_vision', NOW, NOW);
+      insert.run('job-b', asset.id, 'frames', NOW, NOW);
+      insert.run('job-c', asset.id, 'thumbnail', NOW, NOW);
+      insert.run('job-z', asset.id, 'metadata', NOW, NOW);
+
+      expect(repos.jobs.nextPending()?.stage).toBe('metadata');
+      expect(repos.jobs.claimNextPending()?.stage).toBe('metadata');
+      expect(repos.jobs.claimNextPending()?.stage).toBe('thumbnail');
+      expect(repos.jobs.claimNextPending()?.stage).toBe('frames');
+      expect(repos.jobs.claimNextPending()?.stage).toBe('ai_vision');
+    } finally {
+      db.close();
+    }
+  });
+
   it('stores failed job errors and retries failed jobs globally or by asset', () => {
     tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
     const db = openDatabase(path.join(tempDir, 'library.sqlite'));

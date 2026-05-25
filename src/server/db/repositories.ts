@@ -72,6 +72,16 @@ export function normalizeTagName(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+const JOB_STAGE_ORDER_SQL = `case stage
+  when 'metadata' then 0
+  when 'thumbnail' then 1
+  when 'frames' then 2
+  when 'audio' then 3
+  when 'ai_vision' then 4
+  when 'ai_transcript' then 5
+  else 99
+end`;
+
 function mapSource(row: Row): LibrarySource {
   return {
     id: String(row.id),
@@ -402,14 +412,14 @@ export function createRepositories(db: LibraryDatabase) {
 
     listForAsset(assetId: string): AnalysisJob[] {
       return db
-        .prepare('select * from analysis_jobs where asset_id = ? order by created_at, id')
+        .prepare(`select * from analysis_jobs where asset_id = ? order by created_at, ${JOB_STAGE_ORDER_SQL}, id`)
         .all(assetId)
         .map((row) => mapJob(row as Row));
     },
 
     nextPending(): AnalysisJob | null {
       const row = db
-        .prepare("select * from analysis_jobs where status = 'pending' order by created_at, id limit 1")
+        .prepare(`select * from analysis_jobs where status = 'pending' order by created_at, ${JOB_STAGE_ORDER_SQL}, id limit 1`)
         .get() as Row | undefined;
       return row ? mapJob(row) : null;
     },
@@ -423,12 +433,12 @@ export function createRepositories(db: LibraryDatabase) {
                  attempts = attempts + 1,
                  error_message = null,
                  updated_at = ?
-             where id = (
-               select id from analysis_jobs
-               where status = 'pending'
-               order by created_at, id
-               limit 1
-             )
+	             where id = (
+	               select id from analysis_jobs
+	               where status = 'pending'
+	               order by created_at, ${JOB_STAGE_ORDER_SQL}, id
+	               limit 1
+	             )
              returning *`
           )
           .get(nowIso()) as Row | undefined;
