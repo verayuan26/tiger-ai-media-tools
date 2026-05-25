@@ -52,16 +52,18 @@ export async function importSourceDirectory(
   repos: Repositories,
   input: ImportSourceInput
 ): Promise<ImportSourceResult> {
+  const rootPath = path.resolve(input.rootPath);
   const source = repos.sources.upsertSource({
     name: input.name,
-    rootPath: input.rootPath
+    rootPath
   });
 
   let indexed = 0;
   let skipped = 0;
 
-  for await (const filePath of walkFiles(input.rootPath)) {
-    const classified = classifyMediaFile(filePath);
+  for await (const filePath of walkFiles(rootPath)) {
+    const resolvedFilePath = path.resolve(filePath);
+    const classified = classifyMediaFile(resolvedFilePath);
     if (!classified) {
       skipped += 1;
       continue;
@@ -70,23 +72,21 @@ export async function importSourceDirectory(
     const fileStat = await stat(filePath);
     const fileHash = await hashFile(filePath);
     const modifiedAt = fileStat.mtime.toISOString();
-    const existing = repos.assets.getByPath(filePath);
+    const existing = repos.assets.getByPath(resolvedFilePath);
     const stages = stagesForKind(classified.kind);
 
-    if (
-      existing &&
-      existing.sizeBytes === fileStat.size &&
-      existing.hash === fileHash &&
-      existing.modifiedAt === modifiedAt
-    ) {
+    if (existing && existing.sizeBytes === fileStat.size && existing.hash === fileHash) {
+      if (existing.modifiedAt !== modifiedAt) {
+        repos.assets.touchModifiedAt(existing.id, modifiedAt);
+      }
       indexed += 1;
       continue;
     }
 
     const asset = repos.assets.upsertAsset({
       sourceId: source.id,
-      path: filePath,
-      fileName: path.basename(filePath),
+      path: resolvedFilePath,
+      fileName: path.basename(resolvedFilePath),
       kind: classified.kind,
       extension: classified.extension,
       sizeBytes: fileStat.size,
@@ -94,6 +94,8 @@ export async function importSourceDirectory(
       modifiedAt
     });
     if (existing) {
+      repos.assets.clearDerivedData(asset.id);
+      repos.tags.clearGeneratedForAsset(asset.id);
       repos.jobs.resetJobs(asset.id, stages);
     } else {
       repos.jobs.ensureJobs(asset.id, stages);

@@ -124,6 +124,37 @@ describe('importSourceDirectory', () => {
     db.close();
   });
 
+  it('updates only modifiedAt when content is unchanged but file mtime changes', async () => {
+    scannerTempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-scan-'));
+    const sourceDir = path.join(scannerTempDir, 'factory');
+    const filePath = path.join(sourceDir, 'photo.jpg');
+    mkdirSync(sourceDir);
+    writeFileSync(filePath, 'same image bytes');
+
+    const db = openDatabase(path.join(scannerTempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    await importSourceDirectory(repos, { rootPath: sourceDir, name: 'Factory' });
+    const asset = repos.assets.searchAssets({})[0];
+    repos.assets.setMetadata(asset.id, { status: 'done' });
+    for (const job of repos.jobs.listForAsset(asset.id)) {
+      repos.jobs.updateStatus(job.id, 'done');
+    }
+
+    const changedTime = new Date('2026-05-26T11:00:00.000Z');
+    utimesSync(filePath, changedTime, changedTime);
+    await importSourceDirectory(repos, { rootPath: sourceDir, name: 'Factory' });
+
+    const updated = repos.assets.getById(asset.id);
+    expect(updated?.status).toBe('done');
+    expect(updated?.hash).toBe(asset.hash);
+    expect(updated?.sizeBytes).toBe(asset.sizeBytes);
+    expect(updated?.modifiedAt).toBe(changedTime.toISOString());
+    expect(repos.jobs.listForAsset(asset.id).map((job) => job.status)).toEqual(['done', 'done', 'done']);
+    expect(repos.jobs.summary().pending).toBe(0);
+    db.close();
+  });
+
   it('updates a changed existing file and requeues its analysis jobs', async () => {
     scannerTempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-scan-'));
     const sourceDir = path.join(scannerTempDir, 'factory');
@@ -151,6 +182,74 @@ describe('importSourceDirectory', () => {
     expect(updated?.hash).not.toBe(asset.hash);
     expect(repos.jobs.listForAsset(asset.id).map((job) => job.status)).toEqual(['pending', 'pending', 'pending']);
     expect(repos.jobs.summary().pending).toBe(3);
+    db.close();
+  });
+
+  it('clears stale derived data and generated tags when content changes', async () => {
+    scannerTempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-scan-'));
+    const sourceDir = path.join(scannerTempDir, 'factory');
+    const filePath = path.join(sourceDir, 'cut.mp4');
+    mkdirSync(sourceDir);
+    writeFileSync(filePath, 'fake video');
+
+    const db = openDatabase(path.join(scannerTempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    await importSourceDirectory(repos, { rootPath: sourceDir, name: 'Factory' });
+    const asset = repos.assets.searchAssets({})[0];
+    repos.assets.setMetadata(asset.id, {
+      durationSeconds: 10,
+      width: 1920,
+      height: 1080,
+      thumbnailPath: '.data/thumbs/cut.jpg',
+      status: 'done'
+    });
+    repos.frames.replaceFrames(asset.id, [
+      { timestampSeconds: 3, thumbnailPath: '.data/thumbs/cut-3.jpg', strategy: 'interval' }
+    ]);
+    repos.transcripts.replaceSegments(asset.id, [
+      { startSeconds: 1, endSeconds: 4, language: 'zh', text: 'old transcript', translation: null }
+    ]);
+    repos.tags.assignAssetTag(asset.id, 'Keep Manual', 'user', null);
+    repos.tags.assignAssetTag(asset.id, 'Old AI Asset', 'ai', 0.9);
+    const frame = repos.frames.listForAsset(asset.id)[0];
+    const frameTagId = repos.tags.getOrCreate('Old AI Frame', 'ai');
+    db.prepare(
+      `insert into asset_tags (id, target_type, target_id, tag_id, confidence)
+       values (?, 'frame', ?, ?, ?)`
+    ).run('frame-ai-tag', frame.id, frameTagId, 0.8);
+    for (const job of repos.jobs.listForAsset(asset.id)) {
+      repos.jobs.updateStatus(job.id, 'done');
+    }
+
+    writeFileSync(filePath, 'fake video changed');
+    const changedTime = new Date('2026-05-26T12:00:00.000Z');
+    utimesSync(filePath, changedTime, changedTime);
+    await importSourceDirectory(repos, { rootPath: sourceDir, name: 'Factory' });
+
+    const updated = repos.assets.getById(asset.id);
+    expect(updated).toMatchObject({
+      status: 'pending',
+      durationSeconds: null,
+      width: null,
+      height: null,
+      thumbnailPath: null
+    });
+    expect(repos.frames.listForAsset(asset.id)).toEqual([]);
+    expect(repos.transcripts.listForAsset(asset.id)).toEqual([]);
+    expect(repos.jobs.listForAsset(asset.id).map((job) => job.status)).toEqual([
+      'pending',
+      'pending',
+      'pending',
+      'pending',
+      'pending',
+      'pending'
+    ]);
+    expect(repos.assets.searchAssets({ tagNames: ['Keep Manual'] })).toHaveLength(1);
+    expect(repos.assets.searchAssets({ tagNames: ['Old AI Asset'] })).toHaveLength(0);
+    expect(db.prepare('select count(*) as count from asset_tags where target_type = ?').get('frame')).toEqual({
+      count: 0
+    });
     db.close();
   });
 });

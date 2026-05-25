@@ -486,6 +486,129 @@ describe('repositories', () => {
     }
   });
 
+  it('does not reset jobs when no stages are requested', () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
+    const db = openDatabase(path.join(tempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    try {
+      const source = repos.sources.upsertSource({ name: 'Factory', rootPath: '/tmp/factory' });
+      const asset = repos.assets.upsertAsset({
+        sourceId: source.id,
+        path: '/tmp/factory/cut.mp4',
+        fileName: 'cut.mp4',
+        kind: 'video',
+        extension: '.mp4',
+        sizeBytes: 12,
+        hash: 'abc',
+        modifiedAt: '2026-05-25T00:00:00.000Z'
+      });
+
+      const job = repos.jobs.ensureJobs(asset.id, ['metadata'])[0];
+      repos.jobs.updateStatus(job.id, 'done');
+
+      expect(repos.jobs.resetJobs(asset.id, [])).toEqual([]);
+      expect(repos.jobs.listForAsset(asset.id)[0]).toMatchObject({
+        status: 'done',
+        attempts: 0,
+        errorMessage: null
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('touches asset modified time without resetting status or derived metadata', () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
+    const db = openDatabase(path.join(tempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    try {
+      const source = repos.sources.upsertSource({ name: 'Factory', rootPath: '/tmp/factory' });
+      const asset = repos.assets.upsertAsset({
+        sourceId: source.id,
+        path: '/tmp/factory/cut.mp4',
+        fileName: 'cut.mp4',
+        kind: 'video',
+        extension: '.mp4',
+        sizeBytes: 12,
+        hash: 'abc',
+        modifiedAt: '2026-05-25T00:00:00.000Z'
+      });
+      repos.assets.setMetadata(asset.id, {
+        durationSeconds: 10,
+        width: 1920,
+        height: 1080,
+        thumbnailPath: '.data/thumbs/cut.jpg',
+        status: 'done'
+      });
+
+      repos.assets.touchModifiedAt(asset.id, '2026-05-26T00:00:00.000Z');
+
+      expect(repos.assets.getById(asset.id)).toMatchObject({
+        status: 'done',
+        modifiedAt: '2026-05-26T00:00:00.000Z',
+        durationSeconds: 10,
+        width: 1920,
+        height: 1080,
+        thumbnailPath: '.data/thumbs/cut.jpg'
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('clears content-derived asset data and generated asset tags', () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
+    const db = openDatabase(path.join(tempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    try {
+      const source = repos.sources.upsertSource({ name: 'Factory', rootPath: '/tmp/factory' });
+      const asset = repos.assets.upsertAsset({
+        sourceId: source.id,
+        path: '/tmp/factory/cut.mp4',
+        fileName: 'cut.mp4',
+        kind: 'video',
+        extension: '.mp4',
+        sizeBytes: 12,
+        hash: 'abc',
+        modifiedAt: '2026-05-25T00:00:00.000Z'
+      });
+      repos.assets.setMetadata(asset.id, {
+        durationSeconds: 10,
+        width: 1920,
+        height: 1080,
+        thumbnailPath: '.data/thumbs/cut.jpg',
+        status: 'done'
+      });
+      repos.frames.replaceFrames(asset.id, [
+        { timestampSeconds: 3, thumbnailPath: '.data/thumbs/cut-3.jpg', strategy: 'interval' }
+      ]);
+      repos.transcripts.replaceSegments(asset.id, [
+        { startSeconds: 1, endSeconds: 4, language: 'zh', text: 'old transcript', translation: null }
+      ]);
+      repos.tags.assignAssetTag(asset.id, 'Manual', 'user', null);
+      repos.tags.assignAssetTag(asset.id, 'Generated', 'ai', 0.9);
+
+      repos.assets.clearDerivedData(asset.id);
+      repos.tags.clearGeneratedForAsset(asset.id);
+
+      expect(repos.assets.getById(asset.id)).toMatchObject({
+        durationSeconds: null,
+        width: null,
+        height: null,
+        thumbnailPath: null
+      });
+      expect(repos.frames.listForAsset(asset.id)).toEqual([]);
+      expect(repos.transcripts.listForAsset(asset.id)).toEqual([]);
+      expect(repos.assets.searchAssets({ tagNames: ['Manual'] })).toHaveLength(1);
+      expect(repos.assets.searchAssets({ tagNames: ['Generated'] })).toHaveLength(0);
+    } finally {
+      db.close();
+    }
+  });
+
   it('updates tag assignments and replaces frames and transcripts in sorted order', () => {
     tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
     const db = openDatabase(path.join(tempDir, 'library.sqlite'));

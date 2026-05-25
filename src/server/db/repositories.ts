@@ -236,6 +236,28 @@ export function createRepositories(db: LibraryDatabase) {
       return row ? mapAsset(row) : null;
     },
 
+    touchModifiedAt(id: string, modifiedAt: string): void {
+      db.prepare('update assets set modified_at = ?, updated_at = ? where id = ?').run(modifiedAt, nowIso(), id);
+    },
+
+    clearDerivedData(id: string): void {
+      const clear = db.transaction(() => {
+        db.prepare(
+          `update assets
+           set duration_seconds = null,
+               width = null,
+               height = null,
+               thumbnail_path = null,
+               updated_at = ?
+           where id = ?`
+        ).run(nowIso(), id);
+        db.prepare('delete from video_frames where asset_id = ?').run(id);
+        db.prepare('delete from transcript_segments where asset_id = ?').run(id);
+      });
+
+      clear();
+    },
+
     setMetadata(id: string, metadata: MetadataInput): void {
       const current = assets.getById(id);
       if (!current) return;
@@ -335,6 +357,8 @@ export function createRepositories(db: LibraryDatabase) {
     },
 
     resetJobs(assetId: string, stages: JobStage[]): AnalysisJob[] {
+      if (stages.length === 0) return [];
+
       const timestamp = nowIso();
       const reset = db.transaction(() => {
         jobs.ensureJobs(assetId, stages);
@@ -476,6 +500,15 @@ export function createRepositories(db: LibraryDatabase) {
            ?
          )`
       ).run(assetId, tagId, createId('atag'), assetId, tagId, confidence);
+    },
+
+    clearGeneratedForAsset(assetId: string): void {
+      db.prepare(
+        `delete from asset_tags
+         where target_type = 'asset'
+           and target_id = ?
+           and tag_id in (select id from tags where source in ('ai', 'system'))`
+      ).run(assetId);
     }
   };
 
