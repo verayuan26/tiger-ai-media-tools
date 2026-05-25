@@ -50,6 +50,19 @@ export function createApiRouter(context: ApiRouteContext): Router {
     })
   );
 
+  router.post(
+    '/dev/import-fixtures',
+    asyncHandler(async (_req, res) => {
+      const input = {
+        rootPath: path.resolve('.data', 'fixtures', 'factory'),
+        name: '牛仔面料工厂'
+      };
+      await assertReadableDirectory(input.rootPath);
+      const result = await importSourceDirectory(context.repos, input);
+      res.json(result);
+    })
+  );
+
   router.get('/assets', (req, res) => {
     res.json({
       assets: context.repos.assets.searchAssets({
