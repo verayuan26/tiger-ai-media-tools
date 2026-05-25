@@ -343,6 +343,30 @@ export function createRepositories(db: LibraryDatabase) {
       return row ? mapJob(row) : null;
     },
 
+    claimNextPending(): AnalysisJob | null {
+      const claim = db.transaction(() => {
+        return db
+          .prepare(
+            `update analysis_jobs
+             set status = 'processing',
+                 attempts = attempts + 1,
+                 error_message = null,
+                 updated_at = ?
+             where id = (
+               select id from analysis_jobs
+               where status = 'pending'
+               order by created_at
+               limit 1
+             )
+             returning *`
+          )
+          .get(nowIso()) as Row | undefined;
+      });
+
+      const row = claim();
+      return row ? mapJob(row) : null;
+    },
+
     updateStatus(jobId: string, status: JobStatus, errorMessage: string | null = null): void {
       db.prepare(
         `update analysis_jobs

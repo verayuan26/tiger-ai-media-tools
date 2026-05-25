@@ -304,4 +304,169 @@ describe('repositories', () => {
       db.close();
     }
   });
+
+  it('keeps job creation idempotent and claims pending jobs atomically', () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
+    const db = openDatabase(path.join(tempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    try {
+      const source = repos.sources.upsertSource({ name: 'Factory', rootPath: '/tmp/factory' });
+      const asset = repos.assets.upsertAsset({
+        sourceId: source.id,
+        path: '/tmp/factory/cut.mp4',
+        fileName: 'cut.mp4',
+        kind: 'video',
+        extension: '.mp4',
+        sizeBytes: 12,
+        hash: 'abc',
+        modifiedAt: '2026-05-25T00:00:00.000Z'
+      });
+
+      repos.jobs.ensureJobs(asset.id, ['metadata', 'thumbnail']);
+      repos.jobs.ensureJobs(asset.id, ['metadata', 'thumbnail']);
+
+      expect(repos.jobs.listForAsset(asset.id)).toHaveLength(2);
+
+      const firstClaim = repos.jobs.claimNextPending();
+
+      expect(firstClaim).toMatchObject({
+        assetId: asset.id,
+        status: 'processing',
+        attempts: 1,
+        errorMessage: null
+      });
+      expect(repos.jobs.listForAsset(asset.id).find((job) => job.id === firstClaim?.id)).toMatchObject({
+        status: 'processing',
+        attempts: 1,
+        errorMessage: null
+      });
+
+      const secondClaim = repos.jobs.claimNextPending();
+
+      expect(secondClaim).not.toBeNull();
+      expect(secondClaim?.id).not.toBe(firstClaim?.id);
+      expect(secondClaim).toMatchObject({ status: 'processing', attempts: 1 });
+      expect(repos.jobs.claimNextPending()).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
+  it('stores failed job errors and retries failed jobs globally or by asset', () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
+    const db = openDatabase(path.join(tempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    try {
+      const source = repos.sources.upsertSource({ name: 'Factory', rootPath: '/tmp/factory' });
+      const firstAsset = repos.assets.upsertAsset({
+        sourceId: source.id,
+        path: '/tmp/factory/cut.mp4',
+        fileName: 'cut.mp4',
+        kind: 'video',
+        extension: '.mp4',
+        sizeBytes: 12,
+        hash: 'abc',
+        modifiedAt: '2026-05-25T00:00:00.000Z'
+      });
+      const secondAsset = repos.assets.upsertAsset({
+        sourceId: source.id,
+        path: '/tmp/factory/stitch.mp4',
+        fileName: 'stitch.mp4',
+        kind: 'video',
+        extension: '.mp4',
+        sizeBytes: 24,
+        hash: 'def',
+        modifiedAt: '2026-05-25T00:00:00.000Z'
+      });
+
+      const firstJob = repos.jobs.ensureJobs(firstAsset.id, ['metadata'])[0];
+      const secondJob = repos.jobs.ensureJobs(secondAsset.id, ['metadata'])[0];
+
+      repos.jobs.updateStatus(firstJob.id, 'failed', 'ffprobe failed');
+      repos.jobs.updateStatus(secondJob.id, 'failed', 'missing codec');
+
+      expect(repos.jobs.listForAsset(firstAsset.id)[0]).toMatchObject({
+        status: 'failed',
+        errorMessage: 'ffprobe failed'
+      });
+
+      expect(repos.jobs.retryFailed(firstAsset.id)).toBe(1);
+      expect(repos.jobs.listForAsset(firstAsset.id)[0]).toMatchObject({
+        status: 'pending',
+        errorMessage: null
+      });
+      expect(repos.jobs.listForAsset(secondAsset.id)[0]).toMatchObject({
+        status: 'failed',
+        errorMessage: 'missing codec'
+      });
+
+      expect(repos.jobs.retryFailed()).toBe(1);
+      expect(repos.jobs.listForAsset(secondAsset.id)[0]).toMatchObject({
+        status: 'pending',
+        errorMessage: null
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('updates tag assignments and replaces frames and transcripts in sorted order', () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
+    const db = openDatabase(path.join(tempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    try {
+      const source = repos.sources.upsertSource({ name: 'Factory', rootPath: '/tmp/factory' });
+      const asset = repos.assets.upsertAsset({
+        sourceId: source.id,
+        path: '/tmp/factory/cut.mp4',
+        fileName: 'cut.mp4',
+        kind: 'video',
+        extension: '.mp4',
+        sizeBytes: 12,
+        hash: 'abc',
+        modifiedAt: '2026-05-25T00:00:00.000Z'
+      });
+
+      repos.tags.assignAssetTag(asset.id, '裁剪布料', 'ai', 0.5);
+      repos.tags.assignAssetTag(asset.id, ' 裁剪布料 ', 'ai', 0.95);
+
+      expect(db.prepare('select count(*) as count from tags').get()).toEqual({ count: 1 });
+      expect(db.prepare('select count(*) as count from asset_tags').get()).toEqual({ count: 1 });
+      expect(db.prepare('select confidence from asset_tags').get()).toEqual({ confidence: 0.95 });
+
+      repos.frames.replaceFrames(asset.id, [
+        { timestampSeconds: 8, thumbnailPath: '.data/thumbs/cut-8.jpg', strategy: 'interval' },
+        { timestampSeconds: 2, thumbnailPath: '.data/thumbs/cut-2.jpg', strategy: 'interval' }
+      ]);
+      repos.frames.replaceFrames(asset.id, [
+        { timestampSeconds: 5, thumbnailPath: '.data/thumbs/cut-5.jpg', strategy: 'precision' },
+        { timestampSeconds: 1, thumbnailPath: '.data/thumbs/cut-1.jpg', strategy: 'keyframe' }
+      ]);
+
+      expect(repos.frames.listForAsset(asset.id).map((frame) => frame.timestampSeconds)).toEqual([1, 5]);
+      expect(repos.frames.listForAsset(asset.id).map((frame) => frame.thumbnailPath)).toEqual([
+        '.data/thumbs/cut-1.jpg',
+        '.data/thumbs/cut-5.jpg'
+      ]);
+
+      repos.transcripts.replaceSegments(asset.id, [
+        { startSeconds: 10, endSeconds: 12, language: 'zh', text: '旧片段', translation: null }
+      ]);
+      repos.transcripts.replaceSegments(asset.id, [
+        { startSeconds: 6, endSeconds: 8, language: 'zh', text: '后裁开', translation: null },
+        { startSeconds: 1, endSeconds: 3, language: 'zh', text: '先铺布', translation: 'lay fabric' }
+      ]);
+
+      expect(repos.transcripts.listForAsset(asset.id).map((segment) => segment.startSeconds)).toEqual([1, 6]);
+      expect(repos.transcripts.listForAsset(asset.id).map((segment) => segment.text)).toEqual([
+        '先铺布',
+        '后裁开'
+      ]);
+    } finally {
+      db.close();
+    }
+  });
 });
