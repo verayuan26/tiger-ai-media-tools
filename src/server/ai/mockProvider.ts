@@ -15,7 +15,7 @@ export function createMockAiProvider(): AiProvider {
 function analyzeMockImage(imagePath: string): ImageAnalysisResult {
   const fileName = path.basename(imagePath).toLowerCase();
 
-  if (fileName.includes('cutting')) {
+  if (fileName.includes('cutting') || fileName.includes('cut')) {
     return {
       tags: [
         { displayName: '裁剪布料', confidence: 0.88 },

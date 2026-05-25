@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -218,6 +218,15 @@ describe('createMockAiProvider', () => {
     });
   });
 
+  it('returns deterministic cutting tags for cut image names', async () => {
+    const provider = createMockAiProvider();
+
+    const result = await provider.analyzeImage({ imagePath: '/tmp/factory_cut.jpg' });
+
+    expect(result.tags[0]).toEqual({ displayName: '裁剪布料', confidence: 0.88 });
+    expect(result.tags).toContainEqual({ displayName: '牛仔布', confidence: 0.82 });
+  });
+
   it('returns deterministic sewing tags for sewing image names', async () => {
     const provider = createMockAiProvider();
 
@@ -286,5 +295,59 @@ describe('createOpenAiCompatibleProvider', () => {
         [key]: ''
       })
     ).toThrow(envName);
+  });
+
+  it('throws with status for non-ok vision responses before parsing JSON', async () => {
+    const imagePath = path.join(await mkdtemp(path.join(os.tmpdir(), 'ai-provider-')), 'frame.jpg');
+    const json = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await writeFile(imagePath, 'fake image');
+      const provider = createOpenAiCompatibleProvider({
+        baseUrl: 'https://example.test/v1',
+        apiKey: 'test-key',
+        visionModel: 'vision-model',
+        transcribeModel: 'transcribe-model'
+      });
+
+      await expect(provider.analyzeImage({ imagePath })).rejects.toThrow(/503/);
+      expect(json).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      await rm(path.dirname(imagePath), { force: true, recursive: true });
+    }
+  });
+
+  it('throws with status for non-ok transcription responses before parsing JSON', async () => {
+    const audioPath = path.join(await mkdtemp(path.join(os.tmpdir(), 'ai-provider-')), 'audio.wav');
+    const json = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      json
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await writeFile(audioPath, 'fake audio');
+      const provider = createOpenAiCompatibleProvider({
+        baseUrl: 'https://example.test/v1',
+        apiKey: 'test-key',
+        visionModel: 'vision-model',
+        transcribeModel: 'transcribe-model'
+      });
+
+      await expect(provider.transcribeAudio({ audioPath })).rejects.toThrow(/429/);
+      expect(json).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      await rm(path.dirname(audioPath), { force: true, recursive: true });
+    }
   });
 });

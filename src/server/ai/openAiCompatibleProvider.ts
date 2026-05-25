@@ -53,6 +53,7 @@ export function createOpenAiCompatibleProvider(config: OpenAiCompatibleProviderC
         })
       });
 
+      assertOkResponse(response, 'OpenAI-compatible image analysis request failed');
       const body = (await response.json()) as ChatCompletionResponse;
       const content = body.choices?.[0]?.message?.content;
       if (!content) {
@@ -78,6 +79,7 @@ export function createOpenAiCompatibleProvider(config: OpenAiCompatibleProviderC
         body: formData
       });
 
+      assertOkResponse(response, 'OpenAI-compatible audio transcription request failed');
       const body = (await response.json()) as TranscriptionResponse;
       return {
         segments: [
@@ -92,6 +94,12 @@ export function createOpenAiCompatibleProvider(config: OpenAiCompatibleProviderC
       };
     }
   };
+}
+
+function assertOkResponse(response: Response, message: string): void {
+  if (!response.ok) {
+    throw new Error(`${message} with HTTP status ${response.status}.`);
+  }
 }
 
 function validateConfig(config: OpenAiCompatibleProviderConfig): void {
