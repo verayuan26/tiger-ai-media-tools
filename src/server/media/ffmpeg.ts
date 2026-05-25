@@ -14,6 +14,25 @@ export interface ExtractedFrame {
   thumbnailPath: string;
 }
 
+export function parseFfprobeDuration(duration: string | undefined): number | null {
+  if (!duration) {
+    return null;
+  }
+
+  const parsedDuration = Number(duration);
+  return Number.isFinite(parsedDuration) ? parsedDuration : null;
+}
+
+export function safeFrameFileStem(assetId: string): string {
+  const normalized = assetId
+    .replace(/[\\/]+/g, '-')
+    .replace(/\.\./g, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^[._-]+|[._-]+$/g, '');
+
+  return normalized || 'asset';
+}
+
 export async function probeMedia(filePath: string): Promise<MediaMetadata> {
   const { stdout } = await execa('ffprobe', [
     '-v',
@@ -30,7 +49,7 @@ export async function probeMedia(filePath: string): Promise<MediaMetadata> {
   };
   const videoStream = parsed.streams?.find((stream) => stream.width && stream.height);
   return {
-    durationSeconds: parsed.format?.duration ? Number(parsed.format.duration) : null,
+    durationSeconds: parseFfprobeDuration(parsed.format?.duration),
     width: videoStream?.width ?? null,
     height: videoStream?.height ?? null
   };
@@ -51,8 +70,9 @@ export async function extractVideoFrames(input: {
   });
 
   const frames: ExtractedFrame[] = [];
+  const fileStem = safeFrameFileStem(input.assetId);
   for (const timestamp of timestamps) {
-    const outputPath = path.join(input.outputDir, `${input.assetId}-${timestamp}.jpg`);
+    const outputPath = path.join(input.outputDir, `${fileStem}-${timestamp}.jpg`);
     await execa('ffmpeg', [
       '-y',
       '-ss',
