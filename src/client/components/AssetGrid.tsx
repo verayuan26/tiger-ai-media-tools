@@ -25,34 +25,53 @@ export function AssetGrid({ assets, selectedAssetId, loading, onSelectAsset }: A
         {loading ? <span className="loadingText">刷新中…</span> : null}
       </div>
       <div className="assetGrid">
-        {assets.map((asset) => (
-          <button
-            className={`assetCard ${asset.id === selectedAssetId ? 'selected' : ''}`}
-            key={asset.id}
-            type="button"
-            onClick={() => onSelectAsset(asset.id)}
-          >
-            <div className={`kindBadge kind-${asset.kind}`}>{kindLabel(asset.kind)}</div>
-            <div className="assetThumb" aria-hidden="true">
-              {asset.thumbnailPath ? (
-                <img src={asset.thumbnailPath} alt="" loading="lazy" />
-              ) : (
-                <span>{asset.extension.replace('.', '').toUpperCase()}</span>
-              )}
-            </div>
-            <div className="assetCardBody">
-              <strong title={asset.fileName}>{asset.fileName}</strong>
-              <span title={asset.path}>{asset.path}</span>
-            </div>
-            <div className="cardFooter">
-              <span className={`statusPill status-${asset.status}`}>{statusLabel(asset.status)}</span>
-              <span>{formatBytes(asset.sizeBytes)}</span>
-            </div>
-          </button>
-        ))}
+        {assets.map((asset) => {
+          const thumbnailUrl = getGeneratedFrameThumbnailUrl(asset.thumbnailPath);
+
+          return (
+            <button
+              className={`assetCard ${asset.id === selectedAssetId ? 'selected' : ''}`}
+              key={asset.id}
+              type="button"
+              onClick={() => onSelectAsset(asset.id)}
+            >
+              <div className={`kindBadge kind-${asset.kind}`}>{kindLabel(asset.kind)}</div>
+              <div className="assetThumb" aria-hidden="true">
+                {thumbnailUrl ? (
+                  <img src={thumbnailUrl} alt="" loading="lazy" />
+                ) : (
+                  <span>{asset.extension.replace('.', '').toUpperCase()}</span>
+                )}
+              </div>
+              <div className="assetCardBody">
+                <strong title={asset.fileName}>{asset.fileName}</strong>
+                <span title={asset.path}>{asset.path}</span>
+              </div>
+              <div className="cardFooter">
+                <span className={`statusPill status-${asset.status}`}>{statusLabel(asset.status)}</span>
+                <span>{formatBytes(asset.sizeBytes)}</span>
+              </div>
+            </button>
+          );
+        })}
       </div>
     </section>
   );
+}
+
+export function getGeneratedFrameThumbnailUrl(thumbnailPath: string | null): string | null {
+  if (!thumbnailPath) return null;
+
+  const pathSegments = thumbnailPath.split(/[\\/]+/);
+  const framesIndex = pathSegments.lastIndexOf('frames');
+  if (framesIndex === -1) return null;
+
+  const frameSegments = pathSegments.slice(framesIndex + 1);
+  if (frameSegments.length === 0 || frameSegments.some((segment) => !segment || segment === '.' || segment === '..')) {
+    return null;
+  }
+
+  return `/media/frames/${frameSegments.map(encodeURIComponent).join('/')}`;
 }
 
 function kindLabel(kind: Asset['kind']): string {

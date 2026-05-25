@@ -112,6 +112,7 @@ export default function App(): React.JSX.Element {
     getAssetDetail(selectedAssetId)
       .then((detail) => {
         if (active) {
+          setError(null);
           setAssetDetail(detail);
         }
       })
