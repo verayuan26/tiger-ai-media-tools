@@ -549,6 +549,29 @@ export function createRepositories(db: LibraryDatabase) {
            and target_id = ?
            and tag_id in (select id from tags where source in ('ai', 'system'))`
       ).run(assetId);
+    },
+
+    listForAsset(assetId: string): Array<{ displayName: string; confidence: number | null; source: TagSource }> {
+      return db
+        .prepare(
+          `select t.display_name as displayName,
+                  at.confidence as confidence,
+                  t.source as source
+           from asset_tags at
+           join tags t on t.id = at.tag_id
+           where at.target_type = 'asset'
+             and at.target_id = ?
+           order by at.confidence desc, t.display_name asc`
+        )
+        .all(assetId)
+        .map((row) => {
+          const tag = row as { displayName: string; confidence: number | null; source: TagSource };
+          return {
+            displayName: tag.displayName,
+            confidence: tag.confidence === null ? null : Number(tag.confidence),
+            source: tag.source
+          };
+        });
     }
   };
 
