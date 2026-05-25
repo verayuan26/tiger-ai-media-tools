@@ -77,6 +77,22 @@ describe('local API server', () => {
     expect(detailResponse.body.jobs).toHaveLength(3);
   });
 
+  it('filters assets with repeated tag query params', async () => {
+    const { dataDir, sourceDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    await request(app).post('/api/sources/import').send({ rootPath: sourceDir, name: 'Factory' }).expect(200);
+    await request(app).post('/api/jobs/drain').send({ limit: 5 }).expect(200);
+
+    const response = await request(app)
+      .get('/api/assets')
+      .query({ tag: ['裁剪布料', '牛仔布'] })
+      .expect(200);
+
+    expect(response.body.assets).toHaveLength(1);
+    expect(response.body.assets[0]).toMatchObject({ fileName: 'factory_cutting.jpg' });
+  });
+
   it('returns 404 for missing asset detail', async () => {
     const { dataDir } = createTempSource();
     const app = createTestApp(dataDir);
@@ -113,6 +129,18 @@ describe('local API server', () => {
     expect(response.headers['access-control-allow-origin']).toBeUndefined();
   });
 
+  it.each(['http://127.0.0.1:5173', 'http://localhost:5173'])(
+    'emits CORS allow-origin for allowed Vite origin %s',
+    async (origin) => {
+      const { dataDir } = createTempSource();
+      const app = createTestApp(dataDir);
+
+      const response = await request(app).get('/api/health').set('Origin', origin).expect(200);
+
+      expect(response.headers['access-control-allow-origin']).toBe(origin);
+    }
+  );
+
   it('does not serve the SQLite database through media routes', async () => {
     const { dataDir } = createTempSource();
     const app = createTestApp(dataDir);
@@ -130,5 +158,30 @@ describe('local API server', () => {
       .expect(400);
 
     expect(response.body.error.message).toBe('Invalid request');
+  });
+
+  it('returns 400 JSON error for malformed JSON bodies', async () => {
+    const { dataDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    const response = await request(app)
+      .post('/api/sources/import')
+      .set('Content-Type', 'application/json')
+      .send('{"rootPath":')
+      .expect(400);
+
+    expect(response.body).toEqual({ error: { message: 'Invalid JSON body' } });
+  });
+
+  it('returns 413 JSON error for oversized JSON bodies', async () => {
+    const { dataDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    const response = await request(app)
+      .post('/api/sources/import')
+      .send({ rootPath: 'x'.repeat(2 * 1024 * 1024), name: 'Factory' })
+      .expect(413);
+
+    expect(response.body).toEqual({ error: { message: 'Request body too large' } });
   });
 });

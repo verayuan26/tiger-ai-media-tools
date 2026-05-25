@@ -69,6 +69,32 @@ const jsonErrorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
     return;
   }
 
+  if (isStatusBearingParserError(error)) {
+    if (error.status === 400 && error.type === 'entity.parse.failed') {
+      res.status(400).json({ error: { message: 'Invalid JSON body' } });
+      return;
+    }
+
+    if (error.status === 413 && error.type === 'entity.too.large') {
+      res.status(413).json({ error: { message: 'Request body too large' } });
+      return;
+    }
+  }
+
   console.error(error);
   res.status(500).json({ error: { message: 'Internal server error' } });
 };
+
+function isStatusBearingParserError(error: unknown): error is { status: number; type?: string } {
+  if (!error || typeof error !== 'object') return false;
+
+  const maybeError = error as { status?: unknown; statusCode?: unknown; type?: unknown };
+  const status = maybeError.status ?? maybeError.statusCode;
+
+  return (
+    typeof status === 'number' &&
+    status >= 400 &&
+    status < 500 &&
+    (maybeError.type === undefined || typeof maybeError.type === 'string')
+  );
+}
