@@ -609,6 +609,73 @@ describe('repositories', () => {
     }
   });
 
+  it('rolls back changed asset refresh when job reset fails', () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
+    const db = openDatabase(path.join(tempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    try {
+      const source = repos.sources.upsertSource({ name: 'Factory', rootPath: '/tmp/factory' });
+      const asset = repos.assets.upsertAsset({
+        sourceId: source.id,
+        path: '/tmp/factory/cut.mp4',
+        fileName: 'cut.mp4',
+        kind: 'video',
+        extension: '.mp4',
+        sizeBytes: 12,
+        hash: 'old-hash',
+        modifiedAt: '2026-05-25T00:00:00.000Z'
+      });
+      repos.assets.setMetadata(asset.id, {
+        durationSeconds: 10,
+        width: 1920,
+        height: 1080,
+        thumbnailPath: '.data/thumbs/cut.jpg',
+        status: 'done'
+      });
+      repos.frames.replaceFrames(asset.id, [
+        { timestampSeconds: 3, thumbnailPath: '.data/thumbs/cut-3.jpg', strategy: 'interval' }
+      ]);
+      repos.transcripts.replaceSegments(asset.id, [
+        { startSeconds: 1, endSeconds: 4, language: 'zh', text: 'old transcript', translation: null }
+      ]);
+      repos.tags.assignAssetTag(asset.id, 'Generated', 'ai', 0.9);
+
+      expect(typeof repos.assets.refreshChangedAsset).toBe('function');
+      expect(() => {
+        repos.assets.refreshChangedAsset(
+          {
+            sourceId: source.id,
+            path: '/tmp/factory/cut.mp4',
+            fileName: 'cut.mp4',
+            kind: 'video',
+            extension: '.mp4',
+            sizeBytes: 24,
+            hash: 'new-hash',
+            modifiedAt: '2026-05-26T00:00:00.000Z'
+          },
+          ['metadata', 'not_a_stage' as never]
+        );
+      }).toThrow();
+
+      expect(repos.assets.getById(asset.id)).toMatchObject({
+        status: 'done',
+        sizeBytes: 12,
+        hash: 'old-hash',
+        modifiedAt: '2026-05-25T00:00:00.000Z',
+        durationSeconds: 10,
+        width: 1920,
+        height: 1080,
+        thumbnailPath: '.data/thumbs/cut.jpg'
+      });
+      expect(repos.frames.listForAsset(asset.id)).toHaveLength(1);
+      expect(repos.transcripts.listForAsset(asset.id)).toHaveLength(1);
+      expect(repos.assets.searchAssets({ tagNames: ['Generated'] })).toHaveLength(1);
+    } finally {
+      db.close();
+    }
+  });
+
   it('updates tag assignments and replaces frames and transcripts in sorted order', () => {
     tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
     const db = openDatabase(path.join(tempDir, 'library.sqlite'));

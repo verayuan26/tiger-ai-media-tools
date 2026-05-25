@@ -83,7 +83,7 @@ export async function importSourceDirectory(
       continue;
     }
 
-    const asset = repos.assets.upsertAsset({
+    const assetInput = {
       sourceId: source.id,
       path: resolvedFilePath,
       fileName: path.basename(resolvedFilePath),
@@ -92,12 +92,11 @@ export async function importSourceDirectory(
       sizeBytes: fileStat.size,
       hash: fileHash,
       modifiedAt
-    });
+    };
     if (existing) {
-      repos.assets.clearDerivedData(asset.id);
-      repos.tags.clearGeneratedForAsset(asset.id);
-      repos.jobs.resetJobs(asset.id, stages);
+      repos.assets.refreshChangedAsset(assetInput, stages);
     } else {
+      const asset = repos.assets.upsertAsset(assetInput);
       repos.jobs.ensureJobs(asset.id, stages);
     }
     indexed += 1;

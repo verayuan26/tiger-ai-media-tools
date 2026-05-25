@@ -13,6 +13,7 @@ import type {
   TranscriptSegment,
   VideoFrame
 } from '../../shared/types';
+import { JOB_STAGES } from '../../shared/constants';
 
 type Row = Record<string, unknown>;
 
@@ -258,6 +259,18 @@ export function createRepositories(db: LibraryDatabase) {
       clear();
     },
 
+    refreshChangedAsset(input: AssetInput, stages: JobStage[]): Asset {
+      const refresh = db.transaction(() => {
+        const asset = assets.upsertAsset(input);
+        assets.clearDerivedData(asset.id);
+        tags.clearGeneratedForAsset(asset.id);
+        jobs.resetJobs(asset.id, stages);
+        return assets.getById(asset.id) as Asset;
+      });
+
+      return refresh();
+    },
+
     setMetadata(id: string, metadata: MetadataInput): void {
       const current = assets.getById(id);
       if (!current) return;
@@ -358,6 +371,11 @@ export function createRepositories(db: LibraryDatabase) {
 
     resetJobs(assetId: string, stages: JobStage[]): AnalysisJob[] {
       if (stages.length === 0) return [];
+      for (const stage of stages) {
+        if (!(JOB_STAGES as readonly string[]).includes(stage)) {
+          throw new Error(`Unsupported job stage: ${stage}`);
+        }
+      }
 
       const timestamp = nowIso();
       const reset = db.transaction(() => {
