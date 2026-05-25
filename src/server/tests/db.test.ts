@@ -353,6 +353,42 @@ describe('repositories', () => {
     }
   });
 
+  it('claims pending jobs deterministically when created timestamps tie', () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
+    const db = openDatabase(path.join(tempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    try {
+      const source = repos.sources.upsertSource({ name: 'Factory', rootPath: '/tmp/factory' });
+      const asset = repos.assets.upsertAsset({
+        sourceId: source.id,
+        path: '/tmp/factory/cut.mp4',
+        fileName: 'cut.mp4',
+        kind: 'video',
+        extension: '.mp4',
+        sizeBytes: 12,
+        hash: 'abc',
+        modifiedAt: '2026-05-25T00:00:00.000Z'
+      });
+
+      db.prepare(
+        `insert into analysis_jobs
+          (id, asset_id, stage, status, attempts, error_message, created_at, updated_at)
+         values (?, ?, ?, 'pending', 0, null, ?, ?)`
+      ).run('job-b', asset.id, 'thumbnail', NOW, NOW);
+      db.prepare(
+        `insert into analysis_jobs
+          (id, asset_id, stage, status, attempts, error_message, created_at, updated_at)
+         values (?, ?, ?, 'pending', 0, null, ?, ?)`
+      ).run('job-a', asset.id, 'metadata', NOW, NOW);
+
+      expect(repos.jobs.nextPending()?.id).toBe('job-a');
+      expect(repos.jobs.claimNextPending()?.id).toBe('job-a');
+    } finally {
+      db.close();
+    }
+  });
+
   it('stores failed job errors and retries failed jobs globally or by asset', () => {
     tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
     const db = openDatabase(path.join(tempDir, 'library.sqlite'));
@@ -465,6 +501,57 @@ describe('repositories', () => {
         '先铺布',
         '后裁开'
       ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('preserves existing frames and transcripts when replacement inserts fail', () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
+    const db = openDatabase(path.join(tempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    try {
+      const source = repos.sources.upsertSource({ name: 'Factory', rootPath: '/tmp/factory' });
+      const asset = repos.assets.upsertAsset({
+        sourceId: source.id,
+        path: '/tmp/factory/cut.mp4',
+        fileName: 'cut.mp4',
+        kind: 'video',
+        extension: '.mp4',
+        sizeBytes: 12,
+        hash: 'abc',
+        modifiedAt: '2026-05-25T00:00:00.000Z'
+      });
+
+      repos.frames.replaceFrames(asset.id, [
+        { timestampSeconds: 2, thumbnailPath: '.data/thumbs/cut-2.jpg', strategy: 'interval' }
+      ]);
+      repos.transcripts.replaceSegments(asset.id, [
+        { startSeconds: 1, endSeconds: 3, language: 'zh', text: '先铺布', translation: null }
+      ]);
+
+      expect(() => {
+        repos.frames.replaceFrames(asset.id, [
+          { timestampSeconds: 4, thumbnailPath: '.data/thumbs/cut-4.jpg', strategy: 'bad' as never }
+        ]);
+      }).toThrow();
+      expect(() => {
+        repos.transcripts.replaceSegments(asset.id, [
+          {
+            startSeconds: 4,
+            endSeconds: 6,
+            language: null as unknown as string,
+            text: '后裁开',
+            translation: null
+          }
+        ]);
+      }).toThrow();
+
+      expect(repos.frames.listForAsset(asset.id).map((frame) => frame.thumbnailPath)).toEqual([
+        '.data/thumbs/cut-2.jpg'
+      ]);
+      expect(repos.transcripts.listForAsset(asset.id).map((segment) => segment.text)).toEqual(['先铺布']);
     } finally {
       db.close();
     }

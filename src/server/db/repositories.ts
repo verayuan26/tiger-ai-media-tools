@@ -338,7 +338,7 @@ export function createRepositories(db: LibraryDatabase) {
 
     nextPending(): AnalysisJob | null {
       const row = db
-        .prepare("select * from analysis_jobs where status = 'pending' order by created_at limit 1")
+        .prepare("select * from analysis_jobs where status = 'pending' order by created_at, id limit 1")
         .get() as Row | undefined;
       return row ? mapJob(row) : null;
     },
@@ -355,7 +355,7 @@ export function createRepositories(db: LibraryDatabase) {
              where id = (
                select id from analysis_jobs
                where status = 'pending'
-               order by created_at
+               order by created_at, id
                limit 1
              )
              returning *`
@@ -457,15 +457,19 @@ export function createRepositories(db: LibraryDatabase) {
 
   const frames = {
     replaceFrames(assetId: string, input: FrameInput[]): void {
-      db.prepare('delete from video_frames where asset_id = ?').run(assetId);
-      const insert = db.prepare(
-        `insert into video_frames (id, asset_id, timestamp_seconds, thumbnail_path, strategy)
-         values (?, ?, ?, ?, ?)`
-      );
+      const replace = db.transaction(() => {
+        db.prepare('delete from video_frames where asset_id = ?').run(assetId);
+        const insert = db.prepare(
+          `insert into video_frames (id, asset_id, timestamp_seconds, thumbnail_path, strategy)
+           values (?, ?, ?, ?, ?)`
+        );
 
-      for (const frame of input) {
-        insert.run(createId('frame'), assetId, frame.timestampSeconds, frame.thumbnailPath, frame.strategy);
-      }
+        for (const frame of input) {
+          insert.run(createId('frame'), assetId, frame.timestampSeconds, frame.thumbnailPath, frame.strategy);
+        }
+      });
+
+      replace();
     },
 
     listForAsset(assetId: string): VideoFrame[] {
@@ -478,24 +482,28 @@ export function createRepositories(db: LibraryDatabase) {
 
   const transcripts = {
     replaceSegments(assetId: string, input: TranscriptInput[]): void {
-      db.prepare('delete from transcript_segments where asset_id = ?').run(assetId);
-      const insert = db.prepare(
-        `insert into transcript_segments
-          (id, asset_id, start_seconds, end_seconds, language, text, translation)
-         values (?, ?, ?, ?, ?, ?, ?)`
-      );
-
-      for (const segment of input) {
-        insert.run(
-          createId('tx'),
-          assetId,
-          segment.startSeconds,
-          segment.endSeconds,
-          segment.language,
-          segment.text,
-          segment.translation
+      const replace = db.transaction(() => {
+        db.prepare('delete from transcript_segments where asset_id = ?').run(assetId);
+        const insert = db.prepare(
+          `insert into transcript_segments
+            (id, asset_id, start_seconds, end_seconds, language, text, translation)
+           values (?, ?, ?, ?, ?, ?, ?)`
         );
-      }
+
+        for (const segment of input) {
+          insert.run(
+            createId('tx'),
+            assetId,
+            segment.startSeconds,
+            segment.endSeconds,
+            segment.language,
+            segment.text,
+            segment.translation
+          );
+        }
+      });
+
+      replace();
     },
 
     listForAsset(assetId: string): TranscriptSegment[] {
