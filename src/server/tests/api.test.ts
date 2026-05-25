@@ -36,6 +36,12 @@ function createTestApp(dataDir: string): Express {
   return app;
 }
 
+function createTestAppWithDevRoutes(dataDir: string): Express {
+  const app = createApp({ dataDir, aiProviderName: 'mock', enableDevRoutes: true });
+  apps.push(app);
+  return app;
+}
+
 describe('local API server', () => {
   it('returns health status', async () => {
     const { dataDir } = createTempSource();
@@ -107,6 +113,22 @@ describe('local API server', () => {
     const response = await request(app).get('/api/nope').expect(404);
 
     expect(response.body).toEqual({ error: { message: 'Not found' } });
+  });
+
+  it('does not mount fixture import route unless dev routes are enabled', async () => {
+    const { dataDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    const response = await request(app).post('/api/dev/import-fixtures').send({}).expect(404);
+
+    expect(response.body).toEqual({ error: { message: 'Not found' } });
+  });
+
+  it('mounts fixture import route when dev routes are enabled', async () => {
+    const { dataDir } = createTempSource();
+    const app = createTestAppWithDevRoutes(dataDir);
+
+    await request(app).post('/api/dev/import-fixtures').send({}).expect(200);
   });
 
   it('returns changed count when retrying failed jobs', async () => {

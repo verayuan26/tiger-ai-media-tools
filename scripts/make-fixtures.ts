@@ -3,10 +3,13 @@ import path from 'node:path';
 
 const dataRoot = path.resolve('.data');
 const fixtureRoot = path.resolve('.data', 'fixtures', 'factory');
-const dataDir = path.resolve(process.env.AI_MEDIA_DATA_DIR ?? '.data');
-const relativeDataDir = path.relative(dataRoot, dataDir);
-const isDataDirWithinDataRoot = relativeDataDir === '' || (!relativeDataDir.startsWith('..') && !path.isAbsolute(relativeDataDir));
-const libraryDatabasePath = isDataDirWithinDataRoot ? path.join(dataDir, 'library.sqlite') : undefined;
+const configuredDataDir = process.env.AI_MEDIA_DATA_DIR;
+const dataDir = configuredDataDir ? path.resolve(configuredDataDir) : undefined;
+const relativeDataDir = dataDir ? path.relative(dataRoot, dataDir) : undefined;
+const isDataDirWithinDataRoot =
+  relativeDataDir !== undefined &&
+  (relativeDataDir === '' || (!relativeDataDir.startsWith('..') && !path.isAbsolute(relativeDataDir)));
+const libraryDatabasePath = dataDir && isDataDirWithinDataRoot ? path.join(dataDir, 'library.sqlite') : undefined;
 
 await rm(fixtureRoot, { recursive: true, force: true });
 if (libraryDatabasePath) {
