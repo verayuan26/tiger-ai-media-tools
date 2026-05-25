@@ -1,6 +1,6 @@
 import type { AssetDetailResponse } from '../api';
 import { QueueSummary } from './QueueSummary';
-import type { QueueSummary as QueueSummaryType } from '../../shared/types';
+import type { Asset, AnalysisJob, QueueSummary as QueueSummaryType } from '../../shared/types';
 
 interface AssetDetailProps {
   detail: AssetDetailResponse | null;
@@ -15,12 +15,12 @@ export function AssetDetail({ detail, queueSummary, loading }: AssetDetailProps)
 
       {!detail ? (
         <section className="detailEmpty">
-          <h2>{loading ? '加载素材详情...' : '选择素材查看详情'}</h2>
+          <h2>{loading ? '加载素材详情…' : '选择素材查看详情'}</h2>
         </section>
       ) : (
         <section className="detailContent">
           <div className="detailHeader">
-            <span className={`statusPill status-${detail.asset.status}`}>{detail.asset.status}</span>
+            <span className={`statusPill status-${detail.asset.status}`}>{statusLabel(detail.asset.status)}</span>
             <h2 title={detail.asset.fileName}>{detail.asset.fileName}</h2>
             <p title={detail.asset.path}>{detail.asset.path}</p>
           </div>
@@ -28,7 +28,7 @@ export function AssetDetail({ detail, queueSummary, loading }: AssetDetailProps)
           <dl className="metaGrid">
             <div>
               <dt>类型</dt>
-              <dd>{detail.asset.kind}</dd>
+              <dd>{kindLabel(detail.asset.kind)}</dd>
             </div>
             <div>
               <dt>尺寸</dt>
@@ -48,7 +48,7 @@ export function AssetDetail({ detail, queueSummary, loading }: AssetDetailProps)
             {detail.tags.length > 0 ? (
               <div className="detailChips">
                 {detail.tags.map((tag) => (
-                  <span className="tagChip static" key={tag.id}>
+                  <span className="tagChip static" key={`${tag.source}:${tag.displayName}`}>
                     {tag.displayName}
                   </span>
                 ))}
@@ -99,8 +99,8 @@ export function AssetDetail({ detail, queueSummary, loading }: AssetDetailProps)
               <ol className="compactList jobList">
                 {detail.jobs.map((job) => (
                   <li key={job.id}>
-                    <strong>{job.stage}</strong>
-                    <span className={`statusPill status-${job.status}`}>{job.status}</span>
+                    <strong>{stageLabel(job.stage)}</strong>
+                    <span className={`statusPill status-${job.status}`}>{statusLabel(job.status)}</span>
                     {job.errorMessage ? <p>{job.errorMessage}</p> : null}
                   </li>
                 ))}
@@ -113,6 +113,36 @@ export function AssetDetail({ detail, queueSummary, loading }: AssetDetailProps)
       )}
     </aside>
   );
+}
+
+function kindLabel(kind: Asset['kind']): string {
+  return {
+    image: '图片',
+    video: '视频',
+    audio: '音频'
+  }[kind];
+}
+
+function statusLabel(status: Asset['status']): string {
+  return {
+    pending: '待处理',
+    processing: '处理中',
+    partial: '部分完成',
+    done: '完成',
+    failed: '失败',
+    skipped: '跳过'
+  }[status];
+}
+
+function stageLabel(stage: AnalysisJob['stage']): string {
+  return {
+    metadata: '元数据',
+    thumbnail: '缩略图',
+    frames: '关键帧',
+    audio: '音频',
+    ai_vision: '视觉分析',
+    ai_transcript: '字幕转写'
+  }[stage];
 }
 
 interface DetailSectionProps {

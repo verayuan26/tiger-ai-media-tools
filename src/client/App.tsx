@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ApiError,
   drainJobs,
@@ -32,6 +32,8 @@ export default function App(): React.JSX.Element {
   const [busyAction, setBusyAction] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const assetRequestSeq = useRef(0);
+  const selectedAssetIdRef = useRef<string | null>(null);
 
   const assetQuery = useMemo(
     () => ({
@@ -50,34 +52,42 @@ export default function App(): React.JSX.Element {
     setQueueSummary(await getQueueSummary());
   }, []);
 
-  const refreshAssets = useCallback(async () => {
+  const refreshAssets = useCallback(async (): Promise<string | null> => {
+    const requestSeq = ++assetRequestSeq.current;
     setLoadingAssets(true);
     try {
       const nextAssets = await listAssets(assetQuery);
+      if (requestSeq !== assetRequestSeq.current) return null;
+
+      const nextSelectedAssetId = pickSelectedAssetId(selectedAssetIdRef.current, nextAssets);
+      selectedAssetIdRef.current = nextSelectedAssetId;
       setAssets(nextAssets);
-      setSelectedAssetId((currentId) => {
-        if (currentId && nextAssets.some((asset) => asset.id === currentId)) return currentId;
-        return nextAssets[0]?.id ?? null;
-      });
+      setSelectedAssetId(nextSelectedAssetId);
+      return nextSelectedAssetId;
     } finally {
-      setLoadingAssets(false);
+      if (requestSeq === assetRequestSeq.current) {
+        setLoadingAssets(false);
+      }
     }
   }, [assetQuery]);
 
-  const refreshAll = useCallback(async () => {
+  const refreshAll = useCallback(async (): Promise<string | null> => {
+    const requestSeq = ++assetRequestSeq.current;
     const [nextSources, nextAssets, nextQueue] = await Promise.all([
       listSources(),
       listAssets(assetQuery),
       getQueueSummary()
     ]);
 
+    if (requestSeq !== assetRequestSeq.current) return null;
+
+    const nextSelectedAssetId = pickSelectedAssetId(selectedAssetIdRef.current, nextAssets);
+    selectedAssetIdRef.current = nextSelectedAssetId;
     setSources(nextSources);
     setAssets(nextAssets);
     setQueueSummary(nextQueue);
-    setSelectedAssetId((currentId) => {
-      if (currentId && nextAssets.some((asset) => asset.id === currentId)) return currentId;
-      return nextAssets[0]?.id ?? null;
-    });
+    setSelectedAssetId(nextSelectedAssetId);
+    return nextSelectedAssetId;
   }, [assetQuery]);
 
   useEffect(() => {
@@ -121,7 +131,7 @@ export default function App(): React.JSX.Element {
     };
   }, [selectedAssetId]);
 
-  async function runSafely(action: () => Promise<void>): Promise<void> {
+  async function runSafely(action: () => Promise<unknown>): Promise<void> {
     setError(null);
     try {
       await action();
@@ -143,8 +153,8 @@ export default function App(): React.JSX.Element {
       const result = await drainJobs(10);
       setNotice(`已处理 ${result.processed} 个任务。`);
       setQueueSummary(result.summary);
-      await refreshAssets();
-      await refreshSelectedDetail();
+      const nextSelectedAssetId = await refreshAll();
+      await refreshSelectedDetail(nextSelectedAssetId);
     });
   }
 
@@ -153,18 +163,18 @@ export default function App(): React.JSX.Element {
       const result = await retryFailed();
       setNotice(`已重试 ${result.changed} 个失败任务。`);
       setQueueSummary(result.summary);
-      await refreshAssets();
-      await refreshSelectedDetail();
+      const nextSelectedAssetId = await refreshAll();
+      await refreshSelectedDetail(nextSelectedAssetId);
     });
   }
 
-  async function refreshSelectedDetail(): Promise<void> {
-    if (!selectedAssetId) {
+  async function refreshSelectedDetail(assetId: string | null): Promise<void> {
+    if (!assetId) {
       setAssetDetail(null);
       return;
     }
 
-    setAssetDetail(await getAssetDetail(selectedAssetId));
+    setAssetDetail(await getAssetDetail(assetId));
   }
 
   async function runAction(action: () => Promise<void>): Promise<void> {
@@ -222,13 +232,21 @@ export default function App(): React.JSX.Element {
           assets={assets}
           selectedAssetId={selectedAssetId}
           loading={loadingAssets}
-          onSelectAsset={setSelectedAssetId}
+          onSelectAsset={(assetId) => {
+            selectedAssetIdRef.current = assetId;
+            setSelectedAssetId(assetId);
+          }}
         />
       </main>
 
       <AssetDetail detail={assetDetail} queueSummary={queueSummary} loading={loadingDetail} />
     </div>
   );
+}
+
+function pickSelectedAssetId(currentId: string | null, assets: Asset[]): string | null {
+  if (currentId && assets.some((asset) => asset.id === currentId)) return currentId;
+  return assets[0]?.id ?? null;
 }
 
 function readErrorMessage(error: unknown): string {

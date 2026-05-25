@@ -3,14 +3,20 @@ import type {
   Asset,
   LibrarySource,
   QueueSummary,
-  Tag,
+  TagSource,
   TranscriptSegment,
   VideoFrame
 } from '../shared/types';
 
+export interface AssetDetailTag {
+  displayName: string;
+  confidence: number | null;
+  source: TagSource;
+}
+
 export interface AssetDetailResponse {
   asset: Asset;
-  tags: Tag[];
+  tags: AssetDetailTag[];
   frames: VideoFrame[];
   transcripts: TranscriptSegment[];
   jobs: AnalysisJob[];

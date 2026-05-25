@@ -86,7 +86,7 @@ export function Sidebar({
           />
         </label>
         <button className="primaryButton" type="submit" disabled={busy || !rootPath.trim() || !sourceName.trim()}>
-          {busy ? '导入中...' : '导入'}
+          {busy ? '导入中…' : '导入'}
         </button>
       </form>
     </aside>

@@ -22,7 +22,7 @@ export function AssetGrid({ assets, selectedAssetId, loading, onSelectAsset }: A
       <div className="resultMeta">
         <strong>{assets.length}</strong>
         <span>个素材</span>
-        {loading ? <span className="loadingText">刷新中...</span> : null}
+        {loading ? <span className="loadingText">刷新中…</span> : null}
       </div>
       <div className="assetGrid">
         {assets.map((asset) => (
