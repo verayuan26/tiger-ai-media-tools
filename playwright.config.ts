@@ -15,7 +15,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'npm run dev',
+      command: 'AI_MEDIA_DATA_DIR=.data/e2e npm run fixtures && AI_MEDIA_DATA_DIR=.data/e2e npm run dev',
       port: 8787,
       reuseExistingServer: true
     },
