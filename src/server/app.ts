@@ -28,14 +28,29 @@ export function createApp(overrides: ConfigOverrides = {}) {
   app.locals.db = db;
   app.locals.repos = repos;
 
-  app.use(cors());
+  app.use(createLocalCorsMiddleware(config.port));
   app.use(express.json({ limit: '2mb' }));
   app.use('/api', createApiRouter({ repos, aiProvider, dataDir: config.dataDir }));
-  app.use('/media', express.static(config.dataDir));
+  app.use('/media/frames', express.static(path.join(config.dataDir, 'frames')));
   app.use(express.static(path.resolve('dist/client')));
   app.use(jsonErrorHandler);
 
   return app;
+}
+
+function createLocalCorsMiddleware(port: number) {
+  const allowedOrigins = new Set([
+    `http://127.0.0.1:${port}`,
+    `http://localhost:${port}`,
+    'http://127.0.0.1:5173',
+    'http://localhost:5173'
+  ]);
+
+  return cors({
+    origin(origin, callback) {
+      callback(null, !origin || allowedOrigins.has(origin) ? origin : false);
+    }
+  });
 }
 
 const jsonErrorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
@@ -54,6 +69,6 @@ const jsonErrorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
     return;
   }
 
-  const message = error instanceof Error ? error.message : String(error);
-  res.status(500).json({ error: { message } });
+  console.error(error);
+  res.status(500).json({ error: { message: 'Internal server error' } });
 };

@@ -14,8 +14,8 @@ export interface ApiRouteContext {
 }
 
 const importSourceSchema = z.object({
-  rootPath: z.string().min(1),
-  name: z.string().min(1)
+  rootPath: z.string().trim().min(1),
+  name: z.string().trim().min(1)
 });
 
 const drainJobsSchema = z.object({
@@ -23,7 +23,7 @@ const drainJobsSchema = z.object({
 });
 
 const retryFailedSchema = z.object({
-  assetId: z.string().min(1).optional()
+  assetId: z.string().trim().min(1).optional()
 });
 
 export function createApiRouter(context: ApiRouteContext): Router {

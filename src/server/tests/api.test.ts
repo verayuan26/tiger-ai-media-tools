@@ -1,13 +1,21 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { Express } from 'express';
 import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../app';
+import type { LibraryDatabase } from '../db/connection';
 
 let tempDir: string | null = null;
+const apps: Express[] = [];
 
 afterEach(() => {
+  while (apps.length > 0) {
+    const app = apps.pop();
+    (app?.locals.db as LibraryDatabase | undefined)?.close();
+  }
+
   if (tempDir) {
     rmSync(tempDir, { recursive: true, force: true });
     tempDir = null;
@@ -22,17 +30,23 @@ function createTempSource() {
   return { dataDir: tempDir, sourceDir };
 }
 
+function createTestApp(dataDir: string): Express {
+  const app = createApp({ dataDir, aiProviderName: 'mock' });
+  apps.push(app);
+  return app;
+}
+
 describe('local API server', () => {
   it('returns health status', async () => {
     const { dataDir } = createTempSource();
-    const app = createApp({ dataDir, aiProviderName: 'mock' });
+    const app = createTestApp(dataDir);
 
     await request(app).get('/api/health').expect(200, { ok: true });
   });
 
   it('imports image assets, drains analysis, searches by tag, and returns asset detail', async () => {
     const { dataDir, sourceDir } = createTempSource();
-    const app = createApp({ dataDir, aiProviderName: 'mock' });
+    const app = createTestApp(dataDir);
 
     const importResponse = await request(app)
       .post('/api/sources/import')
@@ -65,14 +79,14 @@ describe('local API server', () => {
 
   it('returns 404 for missing asset detail', async () => {
     const { dataDir } = createTempSource();
-    const app = createApp({ dataDir, aiProviderName: 'mock' });
+    const app = createTestApp(dataDir);
 
     await request(app).get('/api/assets/missing-asset').expect(404);
   });
 
   it('returns changed count when retrying failed jobs', async () => {
     const { dataDir } = createTempSource();
-    const app = createApp({ dataDir, aiProviderName: 'mock' });
+    const app = createTestApp(dataDir);
 
     const retryResponse = await request(app).post('/api/jobs/retry-failed').send({}).expect(200);
 
@@ -88,5 +102,33 @@ describe('local API server', () => {
       }
     });
     expect(retryResponse.body).not.toHaveProperty('retried');
+  });
+
+  it('does not emit CORS allow-origin for disallowed origins', async () => {
+    const { dataDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    const response = await request(app).get('/api/health').set('Origin', 'https://example.com').expect(200);
+
+    expect(response.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  it('does not serve the SQLite database through media routes', async () => {
+    const { dataDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    await request(app).get('/media/library.sqlite').expect(404);
+  });
+
+  it('rejects whitespace-only import payload fields with 400', async () => {
+    const { dataDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    const response = await request(app)
+      .post('/api/sources/import')
+      .send({ rootPath: '   ', name: '   ' })
+      .expect(400);
+
+    expect(response.body.error.message).toBe('Invalid request');
   });
 });
