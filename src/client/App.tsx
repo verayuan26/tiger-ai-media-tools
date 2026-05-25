@@ -32,6 +32,7 @@ export default function App(): React.JSX.Element {
   const [busyAction, setBusyAction] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [detailRefreshVersion, setDetailRefreshVersion] = useState(0);
   const assetRequestSeq = useRef(0);
   const selectedAssetIdRef = useRef<string | null>(null);
 
@@ -129,7 +130,7 @@ export default function App(): React.JSX.Element {
     return () => {
       active = false;
     };
-  }, [selectedAssetId]);
+  }, [detailRefreshVersion, selectedAssetId]);
 
   async function runSafely(action: () => Promise<unknown>): Promise<void> {
     setError(null);
@@ -145,6 +146,7 @@ export default function App(): React.JSX.Element {
       const result = await importSource(rootPath.trim(), sourceName.trim());
       setNotice(`已导入 ${result.indexed} 个素材，跳过 ${result.skipped} 个。`);
       await refreshAll();
+      setDetailRefreshVersion((version) => version + 1);
     });
   }
 
@@ -153,8 +155,8 @@ export default function App(): React.JSX.Element {
       const result = await drainJobs(10);
       setNotice(`已处理 ${result.processed} 个任务。`);
       setQueueSummary(result.summary);
-      const nextSelectedAssetId = await refreshAll();
-      await refreshSelectedDetail(nextSelectedAssetId);
+      await refreshAll();
+      setDetailRefreshVersion((version) => version + 1);
     });
   }
 
@@ -163,18 +165,9 @@ export default function App(): React.JSX.Element {
       const result = await retryFailed();
       setNotice(`已重试 ${result.changed} 个失败任务。`);
       setQueueSummary(result.summary);
-      const nextSelectedAssetId = await refreshAll();
-      await refreshSelectedDetail(nextSelectedAssetId);
+      await refreshAll();
+      setDetailRefreshVersion((version) => version + 1);
     });
-  }
-
-  async function refreshSelectedDetail(assetId: string | null): Promise<void> {
-    if (!assetId) {
-      setAssetDetail(null);
-      return;
-    }
-
-    setAssetDetail(await getAssetDetail(assetId));
   }
 
   async function runAction(action: () => Promise<void>): Promise<void> {
