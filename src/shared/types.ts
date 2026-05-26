@@ -34,12 +34,25 @@ export interface Asset {
   updatedAt: string;
 }
 
+export interface AssetTagChip {
+  displayName: string;
+}
+
+export interface AssetListItem extends Asset {
+  tags: AssetTagChip[];
+  tagCount: number;
+}
+
 export interface VideoFrame {
   id: string;
   assetId: string;
   timestampSeconds: number;
   thumbnailPath: string;
   strategy: 'keyframe' | 'interval' | 'precision';
+}
+
+export interface VideoFrameWithTags extends VideoFrame {
+  tags: AssetTagChip[];
 }
 
 export interface TranscriptSegment {
@@ -101,4 +114,22 @@ export interface QueueSummary {
   done: number;
   failed: number;
   skipped: number;
+}
+
+export interface LibrarySourceStats extends LibrarySource {
+  assetCount: number;
+}
+
+export interface TagListItem {
+  id: string;
+  displayName: string;
+  normalizedName: string;
+  source: TagSource;
+  assetCount: number;
+  maxConfidence: number | null;
+}
+
+export interface QueueJobListItem extends AnalysisJob {
+  fileName: string;
+  kind: MediaKind;
 }

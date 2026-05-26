@@ -23,13 +23,16 @@ cp .env.example .env
 npm run dev
 ```
 
-另开一个终端启动前端：
+`npm run dev` 会先执行 `npm run build`，再启动 Express（默认端口 `8787`），并托管 `dist/client` 中的生产构建产物。Board 或验收场景只需这一条命令，访问 [http://127.0.0.1:8787](http://127.0.0.1:8787) 即可看到与构建一致的 UI。
+
+前端开发如需 Vite HMR，另开终端：
 
 ```bash
-npm run dev:client
+npm run dev:server   # 终端 1：仅 API
+npm run dev:client   # 终端 2：Vite 开发服务器，http://127.0.0.1:5173
 ```
 
-访问 [http://127.0.0.1:5173](http://127.0.0.1:5173)。默认 API 端口是 `8787`。
+`dev:client` 通过 CORS 调用 `8787` 上的 API；改 UI 后无需重建 `dist/client`。
 
 ## 普通导入
 

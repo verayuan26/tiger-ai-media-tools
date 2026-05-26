@@ -1,4 +1,5 @@
 import type { Asset } from '../../shared/types';
+import { getAssetThumbnailUrl } from '../lib/media-url';
 
 interface AssetGridProps {
   assets: Asset[];
@@ -26,7 +27,7 @@ export function AssetGrid({ assets, selectedAssetId, loading, onSelectAsset }: A
       </div>
       <div className="assetGrid">
         {assets.map((asset) => {
-          const thumbnailUrl = getGeneratedFrameThumbnailUrl(asset.thumbnailPath);
+          const thumbnailUrl = getAssetThumbnailUrl(asset.id, asset.thumbnailPath);
 
           return (
             <button
@@ -59,20 +60,7 @@ export function AssetGrid({ assets, selectedAssetId, loading, onSelectAsset }: A
   );
 }
 
-export function getGeneratedFrameThumbnailUrl(thumbnailPath: string | null): string | null {
-  if (!thumbnailPath) return null;
-
-  const pathSegments = thumbnailPath.split(/[\\/]+/);
-  const framesIndex = pathSegments.lastIndexOf('frames');
-  if (framesIndex === -1) return null;
-
-  const frameSegments = pathSegments.slice(framesIndex + 1);
-  if (frameSegments.length === 0 || frameSegments.some((segment) => !segment || segment === '.' || segment === '..')) {
-    return null;
-  }
-
-  return `/media/frames/${frameSegments.map(encodeURIComponent).join('/')}`;
-}
+export { getAssetThumbnailUrl, getGeneratedFrameThumbnailUrl } from '../lib/media-url';
 
 function kindLabel(kind: Asset['kind']): string {
   return {

@@ -11,6 +11,7 @@ type Repositories = ReturnType<typeof createRepositories>;
 export interface ImportSourceInput {
   rootPath: string;
   name: string;
+  incrementalScanEnabled?: boolean;
 }
 
 export interface ImportSourceResult {
@@ -55,7 +56,8 @@ export async function importSourceDirectory(
   const rootPath = path.resolve(input.rootPath);
   const source = repos.sources.upsertSource({
     name: input.name,
-    rootPath
+    rootPath,
+    incrementalScanEnabled: input.incrementalScanEnabled
   });
 
   let indexed = 0;

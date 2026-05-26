@@ -18,12 +18,12 @@ export default defineConfig({
       command:
         'AI_MEDIA_DATA_DIR=.data/e2e npm run fixtures && AI_MEDIA_DATA_DIR=.data/e2e AI_PROVIDER=mock AI_MEDIA_ENABLE_DEV_ROUTES=1 npm run dev',
       port: 8787,
-      reuseExistingServer: false
+      reuseExistingServer: !process.env.CI
     },
     {
       command: 'npm run dev:client',
       port: 5173,
-      reuseExistingServer: false
+      reuseExistingServer: !process.env.CI
     }
   ]
 });

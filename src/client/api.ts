@@ -1,11 +1,15 @@
 import type {
   AnalysisJob,
   Asset,
+  AssetListItem,
   LibrarySource,
+  LibrarySourceStats,
+  QueueJobListItem,
   QueueSummary,
+  TagListItem,
   TagSource,
   TranscriptSegment,
-  VideoFrame
+  VideoFrameWithTags
 } from '../shared/types';
 
 export interface AssetDetailTag {
@@ -17,7 +21,7 @@ export interface AssetDetailTag {
 export interface AssetDetailResponse {
   asset: Asset;
   tags: AssetDetailTag[];
-  frames: VideoFrame[];
+  frames: VideoFrameWithTags[];
   transcripts: TranscriptSegment[];
   jobs: AnalysisJob[];
 }
@@ -55,12 +59,33 @@ export class ApiError extends Error {
   }
 }
 
-export async function listSources(): Promise<LibrarySource[]> {
-  const response = await request<{ sources: LibrarySource[] }>('/api/sources');
+export async function listSources(): Promise<LibrarySourceStats[]> {
+  const response = await request<{ sources: LibrarySourceStats[] }>('/api/sources');
   return response.sources;
 }
 
-export async function listAssets(query: AssetQuery = {}): Promise<Asset[]> {
+export async function listTags(): Promise<TagListItem[]> {
+  const response = await request<{ tags: TagListItem[] }>('/api/tags');
+  return response.tags;
+}
+
+export async function createTag(displayName: string, normalizedName?: string): Promise<TagListItem> {
+  const response = await request<{ tag: TagListItem }>('/api/tags', {
+    method: 'POST',
+    body: JSON.stringify({
+      displayName,
+      ...(normalizedName ? { normalizedName } : {})
+    })
+  });
+  return response.tag;
+}
+
+export async function listQueueJobs(limit = 50): Promise<QueueJobListItem[]> {
+  const response = await request<{ jobs: QueueJobListItem[] }>(`/api/jobs?limit=${limit}`);
+  return response.jobs;
+}
+
+export async function listAssets(query: AssetQuery = {}): Promise<AssetListItem[]> {
   const params = new URLSearchParams();
 
   query.tagNames?.forEach((tagName) => {
@@ -70,7 +95,7 @@ export async function listAssets(query: AssetQuery = {}): Promise<Asset[]> {
   if (query.transcript) params.set('transcript', query.transcript);
 
   const path = params.size > 0 ? `/api/assets?${params.toString()}` : '/api/assets';
-  const response = await request<{ assets: Asset[] }>(path);
+  const response = await request<{ assets: AssetListItem[] }>(path);
   return response.assets;
 }
 
@@ -83,10 +108,37 @@ export async function getQueueSummary(): Promise<QueueSummary> {
   return response.summary;
 }
 
-export async function importSource(rootPath: string, name: string): Promise<ImportSourceResponse> {
+export async function importSource(
+  rootPath: string,
+  name: string,
+  incrementalScanEnabled = true
+): Promise<ImportSourceResponse> {
   return request<ImportSourceResponse>('/api/sources/import', {
     method: 'POST',
-    body: JSON.stringify({ rootPath, name })
+    body: JSON.stringify({ rootPath, name, incrementalScanEnabled })
+  });
+}
+
+export async function updateSource(
+  sourceId: string,
+  input: { name?: string; rootPath?: string; incrementalScanEnabled?: boolean }
+): Promise<LibrarySource> {
+  const response = await request<{ source: LibrarySource }>(`/api/sources/${encodeURIComponent(sourceId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input)
+  });
+  return response.source;
+}
+
+export async function deleteSource(sourceId: string): Promise<void> {
+  await request<{ ok: boolean }>(`/api/sources/${encodeURIComponent(sourceId)}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function rescanSource(sourceId: string): Promise<ImportSourceResponse> {
+  return request<ImportSourceResponse>(`/api/sources/${encodeURIComponent(sourceId)}/rescan`, {
+    method: 'POST'
   });
 }
 

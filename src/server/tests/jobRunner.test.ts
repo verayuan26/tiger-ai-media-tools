@@ -197,9 +197,13 @@ describe('job runner', () => {
   it('processes video analysis stages in dependency order', async () => {
     const calls: string[] = [];
     const aiProvider: AiProvider = {
-      analyzeImage: vi.fn(async () => {
+      analyzeImage: vi.fn(async ({ imagePath }) => {
         calls.push('ai_vision');
-        return { tags: [] };
+        return {
+          tags: imagePath.includes('cutting')
+            ? [{ displayName: '裁剪布料', confidence: 0.88 }]
+            : [{ displayName: '缝纫机', confidence: 0.9 }]
+        };
       }),
       transcribeAudio: vi.fn(async () => {
         calls.push('ai_transcript');
@@ -227,7 +231,7 @@ describe('job runner', () => {
 
       await expect(drainQueue(context, 10)).resolves.toBe(6);
 
-      expect(calls).toEqual(['metadata', 'frames', 'ai_vision', 'ai_transcript']);
+      expect(calls).toEqual(['metadata', 'frames', 'ai_vision', 'ai_vision', 'ai_transcript']);
       expect(mediaMock.extractVideoFrames).toHaveBeenCalledWith(
         expect.objectContaining({
           assetId: asset.id,
@@ -252,6 +256,10 @@ describe('job runner', () => {
         'done',
         'done'
       ]);
+      const frames = repos.frames.listForAsset(asset.id);
+      expect(frames).toHaveLength(1);
+      const frameTags = repos.tags.listForFrames(frames.map((frame) => frame.id));
+      expect(frameTags.get(frames[0].id)).toEqual([{ displayName: '缝纫机' }]);
     } finally {
       closeDb(db);
     }

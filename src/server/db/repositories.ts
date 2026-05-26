@@ -7,9 +7,13 @@ import type {
   JobStage,
   JobStatus,
   LibrarySource,
+  LibrarySourceStats,
   MediaKind,
+  QueueJobListItem,
   QueueSummary,
+  TagListItem,
   TagSource,
+  TagTargetType,
   TranscriptSegment,
   VideoFrame
 } from '../../shared/types';
@@ -20,6 +24,13 @@ type Row = Record<string, unknown>;
 interface SourceInput {
   name: string;
   rootPath: string;
+  incrementalScanEnabled?: boolean;
+}
+
+interface UpdateSourceInput {
+  name?: string;
+  rootPath?: string;
+  incrementalScanEnabled?: boolean;
 }
 
 interface AssetInput {
@@ -163,11 +174,12 @@ export function createRepositories(db: LibraryDatabase) {
       }
 
       const id = createId('src');
+      const incrementalScanEnabled = input.incrementalScanEnabled ?? true;
       db.prepare(
         `insert into library_sources
           (id, name, root_path, incremental_scan_enabled, last_scanned_at, created_at)
-         values (?, ?, ?, 1, null, ?)`
-      ).run(id, input.name, input.rootPath, timestamp);
+         values (?, ?, ?, ?, null, ?)`
+      ).run(id, input.name, input.rootPath, incrementalScanEnabled ? 1 : 0, timestamp);
       return sources.getById(id) as LibrarySource;
     },
 
@@ -183,8 +195,46 @@ export function createRepositories(db: LibraryDatabase) {
         .map((row) => mapSource(row as Row));
     },
 
+    listWithStats(): LibrarySourceStats[] {
+      const counts = new Map<string, number>();
+      const countRows = db
+        .prepare('select source_id, count(*) as count from assets group by source_id')
+        .all() as Array<{ source_id: string; count: number }>;
+
+      for (const row of countRows) {
+        counts.set(String(row.source_id), Number(row.count));
+      }
+
+      return sources.list().map((source) => ({
+        ...source,
+        assetCount: counts.get(source.id) ?? 0
+      }));
+    },
+
     markScanned(id: string): void {
       db.prepare('update library_sources set last_scanned_at = ? where id = ?').run(nowIso(), id);
+    },
+
+    updateSource(id: string, input: UpdateSourceInput): LibrarySource | null {
+      const existing = sources.getById(id);
+      if (!existing) return null;
+
+      const name = input.name ?? existing.name;
+      const rootPath = input.rootPath ?? existing.rootPath;
+      const incrementalScanEnabled = input.incrementalScanEnabled ?? existing.incrementalScanEnabled;
+
+      db.prepare(
+        `update library_sources
+         set name = ?, root_path = ?, incremental_scan_enabled = ?
+         where id = ?`
+      ).run(name, rootPath, incrementalScanEnabled ? 1 : 0, id);
+
+      return sources.getById(id);
+    },
+
+    deleteSource(id: string): boolean {
+      const result = db.prepare('delete from library_sources where id = ?').run(id);
+      return result.changes > 0;
     }
   };
 
@@ -499,6 +549,28 @@ export function createRepositories(db: LibraryDatabase) {
       }
 
       return summary;
+    },
+
+    listActive(limit = 50): QueueJobListItem[] {
+      const rows = db
+        .prepare(
+          `select j.*, a.file_name as file_name, a.kind as kind
+           from analysis_jobs j
+           join assets a on a.id = j.asset_id
+           where j.status in ('pending', 'processing', 'failed')
+           order by case j.status when 'processing' then 0 when 'pending' then 1 else 2 end,
+                    j.updated_at desc,
+                    ${JOB_STAGE_ORDER_SQL},
+                    j.id
+           limit ?`
+        )
+        .all(limit) as Row[];
+
+      return rows.map((row) => ({
+        ...mapJob(row),
+        fileName: String(row.file_name),
+        kind: row.kind as QueueJobListItem['kind']
+      }));
     }
   };
 
@@ -521,18 +593,28 @@ export function createRepositories(db: LibraryDatabase) {
       return id;
     },
 
-    assignAssetTag(assetId: string, displayName: string, source: TagSource, confidence: number | null): void {
+    assignTargetTag(
+      targetType: TagTargetType,
+      targetId: string,
+      displayName: string,
+      source: TagSource,
+      confidence: number | null
+    ): void {
       const tagId = tags.getOrCreate(displayName, source);
       db.prepare(
         `insert or replace into asset_tags (id, target_type, target_id, tag_id, confidence)
          values (
-           coalesce((select id from asset_tags where target_type = 'asset' and target_id = ? and tag_id = ?), ?),
-           'asset',
+           coalesce((select id from asset_tags where target_type = ? and target_id = ? and tag_id = ?), ?),
+           ?,
            ?,
            ?,
            ?
          )`
-      ).run(assetId, tagId, createId('atag'), assetId, tagId, confidence);
+      ).run(targetType, targetId, tagId, createId('atag'), targetType, targetId, tagId, confidence);
+    },
+
+    assignAssetTag(assetId: string, displayName: string, source: TagSource, confidence: number | null): void {
+      tags.assignTargetTag('asset', assetId, displayName, source, confidence);
     },
 
     replaceAiAssetTags(assetId: string, input: AssetTagInput[]): void {
@@ -546,6 +628,23 @@ export function createRepositories(db: LibraryDatabase) {
 
         for (const tag of input) {
           tags.assignAssetTag(assetId, tag.displayName, 'ai', tag.confidence);
+        }
+      });
+
+      replace();
+    },
+
+    replaceAiFrameTags(frameId: string, input: AssetTagInput[]): void {
+      const replace = db.transaction(() => {
+        db.prepare(
+          `delete from asset_tags
+           where target_type = 'frame'
+             and target_id = ?
+             and tag_id in (select id from tags where source = 'ai')`
+        ).run(frameId);
+
+        for (const tag of input) {
+          tags.assignTargetTag('frame', frameId, tag.displayName, 'ai', tag.confidence);
         }
       });
 
@@ -582,6 +681,160 @@ export function createRepositories(db: LibraryDatabase) {
             source: tag.source
           };
         });
+    },
+
+    listSummariesForAssets(
+      assetIds: string[]
+    ): Map<string, { tags: Array<{ displayName: string }>; tagCount: number }> {
+      const summaries = new Map<string, { tags: Array<{ displayName: string }>; tagCount: number }>();
+      if (assetIds.length === 0) return summaries;
+
+      const placeholders = assetIds.map(() => '?').join(', ');
+      const rows = db
+        .prepare(
+          `select at.target_id as assetId,
+                  t.display_name as displayName,
+                  at.confidence as confidence
+           from asset_tags at
+           join tags t on t.id = at.tag_id
+           where at.target_type = 'asset'
+             and at.target_id in (${placeholders})
+           order by at.target_id, at.confidence desc, t.display_name asc`
+        )
+        .all(...assetIds) as Array<{ assetId: string; displayName: string; confidence: number | null }>;
+
+      for (const assetId of assetIds) {
+        summaries.set(assetId, { tags: [], tagCount: 0 });
+      }
+
+      const grouped = new Map<string, Array<{ displayName: string }>>();
+      for (const row of rows) {
+        const bucket = grouped.get(row.assetId) ?? [];
+        bucket.push({ displayName: String(row.displayName) });
+        grouped.set(row.assetId, bucket);
+      }
+
+      for (const [assetId, allTags] of grouped) {
+        summaries.set(assetId, {
+          tags: allTags.slice(0, 3),
+          tagCount: allTags.length
+        });
+      }
+
+      return summaries;
+    },
+
+    listForFrames(frameIds: string[]): Map<string, Array<{ displayName: string }>> {
+      const tagsByFrame = new Map<string, Array<{ displayName: string }>>();
+      if (frameIds.length === 0) return tagsByFrame;
+
+      const placeholders = frameIds.map(() => '?').join(', ');
+      const rows = db
+        .prepare(
+          `select at.target_id as frameId,
+                  t.display_name as displayName
+           from asset_tags at
+           join tags t on t.id = at.tag_id
+           where at.target_type = 'frame'
+             and at.target_id in (${placeholders})
+           order by at.target_id, at.confidence desc, t.display_name asc`
+        )
+        .all(...frameIds) as Array<{ frameId: string; displayName: string }>;
+
+      for (const row of rows) {
+        const bucket = tagsByFrame.get(row.frameId) ?? [];
+        bucket.push({ displayName: String(row.displayName) });
+        tagsByFrame.set(row.frameId, bucket);
+      }
+
+      return tagsByFrame;
+    },
+
+    listWithStats(): TagListItem[] {
+      return db
+        .prepare(
+          `select t.id,
+                  t.display_name as displayName,
+                  t.normalized_name as normalizedName,
+                  t.source as source,
+                  count(distinct case when at.target_type = 'asset' then at.target_id end) as assetCount,
+                  max(case when at.target_type = 'asset' then at.confidence end) as maxConfidence
+           from tags t
+           left join asset_tags at on at.tag_id = t.id
+           group by t.id
+           order by assetCount desc, t.display_name asc`
+        )
+        .all()
+        .map((row) => {
+          const tag = row as {
+            id: string;
+            displayName: string;
+            normalizedName: string;
+            source: TagSource;
+            assetCount: number;
+            maxConfidence: number | null;
+          };
+
+          return {
+            id: String(tag.id),
+            displayName: String(tag.displayName),
+            normalizedName: String(tag.normalizedName),
+            source: tag.source,
+            assetCount: Number(tag.assetCount),
+            maxConfidence: tag.maxConfidence === null ? null : Number(tag.maxConfidence)
+          };
+        });
+    },
+
+    createUserTag(displayName: string, normalizedName?: string): TagListItem {
+      const trimmedDisplayName = displayName.trim();
+      const trimmedNormalizedName = normalizedName?.trim();
+
+      if (trimmedNormalizedName && trimmedNormalizedName.length > 0) {
+        const existing = db
+          .prepare('select id from tags where normalized_name = ?')
+          .get(trimmedNormalizedName) as { id: string } | undefined;
+
+        if (existing) {
+          const row = db.prepare('select * from tags where id = ?').get(existing.id) as Row;
+          return {
+            id: String(row.id),
+            displayName: String(row.display_name),
+            normalizedName: String(row.normalized_name),
+            source: row.source as TagSource,
+            assetCount: 0,
+            maxConfidence: null
+          };
+        }
+
+        const id = createId('tag');
+        db.prepare('insert into tags (id, normalized_name, display_name, source) values (?, ?, ?, ?)').run(
+          id,
+          trimmedNormalizedName,
+          trimmedDisplayName,
+          'user'
+        );
+        const row = db.prepare('select * from tags where id = ?').get(id) as Row;
+        return {
+          id: String(row.id),
+          displayName: String(row.display_name),
+          normalizedName: String(row.normalized_name),
+          source: row.source as TagSource,
+          assetCount: 0,
+          maxConfidence: null
+        };
+      }
+
+      const id = tags.getOrCreate(trimmedDisplayName, 'user');
+      const row = db.prepare('select * from tags where id = ?').get(id) as Row;
+      return {
+        id: String(row.id),
+        displayName: String(row.display_name),
+        normalizedName: String(row.normalized_name),
+        source: row.source as TagSource,
+        assetCount: 0,
+        maxConfidence: null
+      };
     }
   };
 

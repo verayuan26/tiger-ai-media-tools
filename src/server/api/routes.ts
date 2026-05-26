@@ -1,6 +1,7 @@
 import { constants } from 'node:fs';
 import { access, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { resolveAssetPreviewPath } from '../media/preview';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { createRepositories } from '../db/repositories';
@@ -19,8 +20,19 @@ export interface ApiRouteContext {
 
 const importSourceSchema = z.object({
   rootPath: z.string().trim().min(1),
-  name: z.string().trim().min(1)
+  name: z.string().trim().min(1),
+  incrementalScanEnabled: z.boolean().optional().default(true)
 });
+
+const updateSourceSchema = z
+  .object({
+    name: z.string().trim().min(1).optional(),
+    rootPath: z.string().trim().min(1).optional(),
+    incrementalScanEnabled: z.boolean().optional()
+  })
+  .refine((input) => Object.keys(input).length > 0, {
+    message: 'At least one field is required'
+  });
 
 const drainJobsSchema = z.object({
   limit: z.number().int().min(1).max(100).optional().default(25)
@@ -28,6 +40,15 @@ const drainJobsSchema = z.object({
 
 const retryFailedSchema = z.object({
   assetId: z.string().trim().min(1).optional()
+});
+
+const createTagSchema = z.object({
+  displayName: z.string().trim().min(1),
+  normalizedName: z.string().trim().min(1).optional()
+});
+
+const listJobsSchema = z.object({
+  limit: z.number().int().min(1).max(200).optional().default(50)
 });
 
 export function createApiRouter(context: ApiRouteContext): Router {
@@ -38,7 +59,24 @@ export function createApiRouter(context: ApiRouteContext): Router {
   });
 
   router.get('/sources', (_req, res) => {
-    res.json({ sources: context.repos.sources.list() });
+    res.json({ sources: context.repos.sources.listWithStats() });
+  });
+
+  router.get('/tags', (_req, res) => {
+    res.json({ tags: context.repos.tags.listWithStats() });
+  });
+
+  router.post('/tags', (req, res) => {
+    const input = createTagSchema.parse(req.body);
+    const tag = context.repos.tags.createUserTag(input.displayName, input.normalizedName);
+    res.status(201).json({ tag });
+  });
+
+  router.get('/jobs', (req, res) => {
+    const limit = listJobsSchema.parse({
+      limit: req.query.limit === undefined ? undefined : Number(req.query.limit)
+    }).limit;
+    res.json({ jobs: context.repos.jobs.listActive(limit) });
   });
 
   router.post(
@@ -47,6 +85,53 @@ export function createApiRouter(context: ApiRouteContext): Router {
       const input = importSourceSchema.parse(req.body);
       await assertReadableDirectory(input.rootPath);
       const result = await importSourceDirectory(context.repos, input);
+      res.json(result);
+    })
+  );
+
+  router.patch(
+    '/sources/:id',
+    asyncHandler(async (req, res, next) => {
+      const input = updateSourceSchema.parse(req.body);
+      if (input.rootPath) {
+        await assertReadableDirectory(input.rootPath);
+      }
+
+      const source = context.repos.sources.updateSource(req.params.id, input);
+      if (!source) {
+        next(new HttpError(404, 'Source not found'));
+        return;
+      }
+
+      res.json({ source });
+    })
+  );
+
+  router.delete('/sources/:id', (req, res, next) => {
+    const deleted = context.repos.sources.deleteSource(req.params.id);
+    if (!deleted) {
+      next(new HttpError(404, 'Source not found'));
+      return;
+    }
+
+    res.json({ ok: true });
+  });
+
+  router.post(
+    '/sources/:id/rescan',
+    asyncHandler(async (req, res, next) => {
+      const source = context.repos.sources.getById(req.params.id);
+      if (!source) {
+        next(new HttpError(404, 'Source not found'));
+        return;
+      }
+
+      await assertReadableDirectory(source.rootPath);
+      const result = await importSourceDirectory(context.repos, {
+        rootPath: source.rootPath,
+        name: source.name,
+        incrementalScanEnabled: source.incrementalScanEnabled
+      });
       res.json(result);
     })
   );
@@ -67,11 +152,17 @@ export function createApiRouter(context: ApiRouteContext): Router {
   }
 
   router.get('/assets', (req, res) => {
+    const assets = context.repos.assets.searchAssets({
+      tagNames: normalizeQueryList(req.query.tag),
+      query: normalizeOptionalString(req.query.q),
+      transcript: normalizeOptionalString(req.query.transcript)
+    });
+    const tagSummaries = context.repos.tags.listSummariesForAssets(assets.map((item) => item.id));
+
     res.json({
-      assets: context.repos.assets.searchAssets({
-        tagNames: normalizeQueryList(req.query.tag),
-        query: normalizeOptionalString(req.query.q),
-        transcript: normalizeOptionalString(req.query.transcript)
+      assets: assets.map((asset) => {
+        const summary = tagSummaries.get(asset.id) ?? { tags: [], tagCount: 0 };
+        return { ...asset, tags: summary.tags, tagCount: summary.tagCount };
       })
     });
   });
@@ -83,14 +174,54 @@ export function createApiRouter(context: ApiRouteContext): Router {
       return;
     }
 
+    const frames = context.repos.frames.listForAsset(asset.id);
+    const frameTags = context.repos.tags.listForFrames(frames.map((frame) => frame.id));
+
     res.json({
       asset,
       tags: context.repos.tags.listForAsset(asset.id),
-      frames: context.repos.frames.listForAsset(asset.id),
+      frames: frames.map((frame) => ({
+        ...frame,
+        tags: frameTags.get(frame.id) ?? []
+      })),
       transcripts: context.repos.transcripts.listForAsset(asset.id),
       jobs: context.repos.jobs.listForAsset(asset.id)
     });
   });
+
+  router.get(
+    '/assets/:id/preview',
+    asyncHandler(async (req, res, next) => {
+      const asset = context.repos.assets.getById(req.params.id);
+      if (!asset) {
+        next(new HttpError(404, 'Asset not found'));
+        return;
+      }
+
+      const source = context.repos.sources.getById(asset.sourceId);
+      const frames = context.repos.frames.listForAsset(asset.id);
+      const previewPath = resolveAssetPreviewPath({
+        asset,
+        sourceRootPath: source?.rootPath ?? null,
+        dataDir: context.dataDir,
+        frameThumbnailPaths: frames.map((frame) => frame.thumbnailPath)
+      });
+
+      if (!previewPath) {
+        next(new HttpError(404, 'Preview not available'));
+        return;
+      }
+
+      try {
+        await access(previewPath, constants.R_OK);
+      } catch {
+        next(new HttpError(404, 'Preview not available'));
+        return;
+      }
+
+      res.sendFile(previewPath);
+    })
+  );
 
   router.get('/queue', (_req, res) => {
     res.json({ summary: context.repos.jobs.summary() });

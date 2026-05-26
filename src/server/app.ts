@@ -36,7 +36,24 @@ export function createApp(overrides: ConfigOverrides = {}) {
   app.use('/api', createApiRouter({ repos, aiProvider, dataDir: config.dataDir, enableDevRoutes: config.enableDevRoutes }));
   app.use('/api', createApiNotFoundHandler());
   app.use('/media/frames', express.static(path.join(config.dataDir, 'frames')));
-  app.use(express.static(path.resolve('dist/client')));
+  app.use('/media/thumbs', express.static(path.join(config.dataDir, 'thumbs')));
+  const clientDir = path.resolve('dist/client');
+  app.use(express.static(clientDir));
+  app.get('*', (req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      next();
+      return;
+    }
+
+    if (req.path.startsWith('/api') || req.path.startsWith('/media/')) {
+      next();
+      return;
+    }
+
+    res.sendFile(path.join(clientDir, 'index.html'), (error) => {
+      if (error) next(error);
+    });
+  });
   app.use(jsonErrorHandler);
 
   return app;

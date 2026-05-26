@@ -19,7 +19,9 @@ test('imports fixture media and filters cutting assets by tag', async ({ page, r
   await expect(page.getByRole('button', { name: /factory_cutting\.jpg/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /sewing_line\.jpg/ })).toBeVisible();
 
-  await page.getByRole('button', { name: '裁剪布料' }).click();
+  await page.getByRole('button', { name: '筛选' }).click();
+  await page.getByRole('menuitemcheckbox', { name: '裁剪布料' }).click();
+  await page.keyboard.press('Escape');
 
   await expect(page.getByRole('button', { name: /factory_cutting\.jpg/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /sewing_line\.jpg/ })).not.toBeVisible();

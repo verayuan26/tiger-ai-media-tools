@@ -86,6 +86,17 @@ export async function processAnalysisJob(
         imagePath: asset.thumbnailPath ?? asset.path
       });
       context.repos.tags.replaceAiAssetTags(asset.id, result.tags);
+
+      if (asset.kind === 'video') {
+        const frames = context.repos.frames.listForAsset(asset.id);
+        for (const frame of frames) {
+          const frameResult = await context.aiProvider.analyzeImage({
+            imagePath: frame.thumbnailPath
+          });
+          context.repos.tags.replaceAiFrameTags(frame.id, frameResult.tags);
+        }
+      }
+
       context.repos.assets.setMetadata(asset.id, { status: 'partial' });
       return { status: 'done' };
     }

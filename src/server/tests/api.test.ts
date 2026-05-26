@@ -69,7 +69,11 @@ describe('local API server', () => {
     const searchResponse = await request(app).get('/api/assets').query({ tag: '裁剪布料' }).expect(200);
 
     expect(searchResponse.body.assets).toHaveLength(1);
-    expect(searchResponse.body.assets[0]).toMatchObject({ fileName: 'factory_cutting.jpg' });
+    expect(searchResponse.body.assets[0]).toMatchObject({
+      fileName: 'factory_cutting.jpg',
+      tagCount: 2,
+      tags: [{ displayName: '裁剪布料' }, { displayName: '牛仔布' }]
+    });
 
     const detailResponse = await request(app).get(`/api/assets/${searchResponse.body.assets[0].id}`).expect(200);
 
@@ -82,6 +86,13 @@ describe('local API server', () => {
     expect(detailResponse.body.frames).toEqual([]);
     expect(detailResponse.body.transcripts).toEqual([]);
     expect(detailResponse.body.jobs).toHaveLength(3);
+
+    const previewResponse = await request(app)
+      .get(`/api/assets/${searchResponse.body.assets[0].id}/preview`)
+      .expect(200);
+
+    expect(previewResponse.headers['content-type']).toMatch(/image\//);
+    expect(Buffer.from(previewResponse.body).toString('utf8')).toBe('fake image bytes');
   });
 
   it('filters assets with repeated tag query params', async () => {
@@ -307,6 +318,76 @@ describe('local API server', () => {
       .expect(400);
 
     expect(response.body).toEqual({ error: { message: 'Invalid JSON body' } });
+  });
+
+  it('updates, rescans, and deletes sources', async () => {
+    const { dataDir, sourceDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    const importResponse = await request(app)
+      .post('/api/sources/import')
+      .send({ rootPath: sourceDir, name: 'Factory', incrementalScanEnabled: false })
+      .expect(200);
+
+    const sourceId = importResponse.body.sourceId as string;
+
+    const updateResponse = await request(app)
+      .patch(`/api/sources/${sourceId}`)
+      .send({ name: 'Factory Updated', incrementalScanEnabled: true })
+      .expect(200);
+
+    expect(updateResponse.body.source).toMatchObject({
+      id: sourceId,
+      name: 'Factory Updated',
+      incrementalScanEnabled: true
+    });
+
+    const rescanResponse = await request(app).post(`/api/sources/${sourceId}/rescan`).expect(200);
+
+    expect(rescanResponse.body).toMatchObject({ sourceId });
+    expect(rescanResponse.body.indexed + rescanResponse.body.skipped).toBe(1);
+
+    await request(app).delete(`/api/sources/${sourceId}`).expect(200);
+
+    const sourcesResponse = await request(app).get('/api/sources').expect(200);
+    expect(sourcesResponse.body.sources).toEqual([]);
+  });
+
+  it('creates tags with optional normalized names', async () => {
+    const { dataDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    const response = await request(app)
+      .post('/api/tags')
+      .send({ displayName: '牛仔布', normalizedName: 'denim' })
+      .expect(201);
+
+    expect(response.body.tag).toMatchObject({
+      displayName: '牛仔布',
+      normalizedName: 'denim',
+      source: 'user'
+    });
+  });
+
+  it('lists tags and active queue jobs', async () => {
+    const { dataDir, sourceDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    await request(app).post('/api/sources/import').send({ rootPath: sourceDir, name: 'Factory' }).expect(200);
+    await request(app).post('/api/jobs/drain').send({ limit: 5 }).expect(200);
+
+    const tagsResponse = await request(app).get('/api/tags').expect(200);
+    expect(Array.isArray(tagsResponse.body.tags)).toBe(true);
+
+    const createTagResponse = await request(app).post('/api/tags').send({ displayName: '重点素材' }).expect(201);
+    expect(createTagResponse.body.tag).toMatchObject({
+      displayName: '重点素材',
+      source: 'user',
+      assetCount: 0
+    });
+
+    const jobsResponse = await request(app).get('/api/jobs').expect(200);
+    expect(Array.isArray(jobsResponse.body.jobs)).toBe(true);
   });
 
   it('returns 413 JSON error for oversized JSON bodies', async () => {
