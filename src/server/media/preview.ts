@@ -1,5 +1,9 @@
 import path from 'node:path';
-import { SUPPORTED_IMAGE_EXTENSIONS } from '../../shared/constants';
+import {
+  SUPPORTED_AUDIO_EXTENSIONS,
+  SUPPORTED_IMAGE_EXTENSIONS,
+  SUPPORTED_VIDEO_EXTENSIONS
+} from '../../shared/constants';
 import type { Asset } from '../../shared/types';
 
 export function resolveGeneratedMediaPath(
@@ -20,6 +24,30 @@ export function resolveGeneratedMediaPath(
 
 export function isImagePreviewPath(filePath: string): boolean {
   return SUPPORTED_IMAGE_EXTENSIONS.includes(path.extname(filePath).toLowerCase() as (typeof SUPPORTED_IMAGE_EXTENSIONS)[number]);
+}
+
+export function isStreamableMediaPath(filePath: string): boolean {
+  const extension = path.extname(filePath).toLowerCase();
+  return (
+    SUPPORTED_IMAGE_EXTENSIONS.includes(extension as (typeof SUPPORTED_IMAGE_EXTENSIONS)[number]) ||
+    SUPPORTED_VIDEO_EXTENSIONS.includes(extension as (typeof SUPPORTED_VIDEO_EXTENSIONS)[number]) ||
+    SUPPORTED_AUDIO_EXTENSIONS.includes(extension as (typeof SUPPORTED_AUDIO_EXTENSIONS)[number])
+  );
+}
+
+/** Resolves the on-disk source file for browser playback (video/audio/image). */
+export function resolveAssetMediaPath(input: {
+  asset: Asset;
+  sourceRootPath: string | null;
+}): string | null {
+  if (!input.sourceRootPath) return null;
+
+  const sourcePath = resolveSourceAssetPath(input.asset.path, input.sourceRootPath);
+  if (!sourcePath || !isStreamableMediaPath(sourcePath)) {
+    return null;
+  }
+
+  return sourcePath;
 }
 
 export function resolveSourceAssetPath(assetPath: string, sourceRootPath: string): string | null {

@@ -20,6 +20,11 @@ export function getGeneratedFrameThumbnailUrl(thumbnailPath: string | null): str
   return getGeneratedMediaUrl(thumbnailPath, 'frames');
 }
 
+/** Read-only stream URL for the original asset file (video/audio/image). */
+export function getAssetMediaUrl(assetId: string): string {
+  return `/api/assets/${encodeURIComponent(assetId)}/media`;
+}
+
 /** Maps asset thumbnail paths to a browser-loadable preview URL. */
 export function getAssetThumbnailUrl(assetId: string, thumbnailPath: string | null): string | null {
   const generated =

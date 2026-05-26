@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { resolveAssetPreviewPath } from '../media/preview';
+import { resolveAssetMediaPath, resolveAssetPreviewPath } from '../media/preview';
 import type { Asset } from '../../shared/types';
 
 let tempDir: string | null = null;
@@ -30,6 +30,7 @@ function createAsset(overrides: Partial<Asset> = {}): Asset {
     height: null,
     status: 'done',
     thumbnailPath: '/media/factory_cutting.jpg',
+    frameMode: 'balanced',
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...overrides
@@ -80,6 +81,32 @@ describe('resolveAssetPreviewPath', () => {
       sourceRootPath: '/media',
       dataDir: '/tmp/data',
       frameThumbnailPaths: []
+    });
+
+    expect(resolved).toBeNull();
+  });
+});
+
+describe('resolveAssetMediaPath', () => {
+  it('resolves video files inside the import root', () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-media-'));
+    const sourceRoot = path.join(tempDir, 'factory');
+    const videoPath = path.join(sourceRoot, 'factory_tour.mp4');
+    mkdirSync(sourceRoot);
+    writeFileSync(videoPath, 'video');
+
+    const resolved = resolveAssetMediaPath({
+      asset: createAsset({ kind: 'video', path: videoPath, extension: '.mp4' }),
+      sourceRootPath: sourceRoot
+    });
+
+    expect(resolved).toBe(videoPath);
+  });
+
+  it('rejects paths outside the import root', () => {
+    const resolved = resolveAssetMediaPath({
+      asset: createAsset({ kind: 'video', path: '/etc/passwd' }),
+      sourceRootPath: '/media'
     });
 
     expect(resolved).toBeNull();

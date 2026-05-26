@@ -99,7 +99,16 @@ AI_MEDIA_DATA_DIR=.data/e2e AI_PROVIDER=mock AI_MEDIA_ENABLE_DEV_ROUTES=1 npm ru
 - `AI_OPENAI_API_KEY`：OpenAI-compatible API key。
 - `AI_OPENAI_VISION_MODEL`：视觉/图片标签模型名。
 - `AI_OPENAI_TRANSCRIBE_MODEL`：音频转写模型名。
+- `AI_DAILY_BUDGET_CENTS`：默认每日 AI 预算（分），用于初始化 SQLite `app_settings`（UI 可在设置页覆盖）。
+- `AI_JOB_COST_CENTS`：每完成一个 AI 阶段任务计入的估算成本（分），默认 `10`。
 - `AI_MEDIA_ENABLE_DEV_ROUTES`：仅开发和测试使用。设为 `1` 时启用 `/api/dev/import-fixtures`。
+
+## 设置 API（二期-D）
+
+- `GET /api/settings`：读取持久化设置（API Key 仅返回是否已配置）。
+- `PATCH /api/settings`：保存协议、端点、Key、预算、并发等。
+- `POST /api/settings/test-ai`：真实探测 AI 可达性（mock 直接成功；openai-compatible 调用 `/models`）。
+- `POST /api/jobs/drain`：超预算或并发上限时返回 `429` 与 `blocked.code`。
 
 ## 验证命令
 

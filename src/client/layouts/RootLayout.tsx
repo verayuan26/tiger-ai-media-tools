@@ -17,8 +17,11 @@ export function RootLayout(): React.JSX.Element {
   ];
 
   return (
-    <div className="size-full flex bg-background">
-      <div className="w-64 bg-[#1a1d24] text-white flex flex-col h-full">
+    <div className="flex h-full min-h-0 overflow-hidden bg-background">
+      <aside
+        aria-label="主导航"
+        className="w-64 shrink-0 bg-[#1a1d24] text-white flex flex-col h-full overflow-hidden"
+      >
         <div className="p-6">
           <h1 className="text-xl font-semibold">AI 素材库</h1>
           <p className="text-sm text-gray-400 mt-1">多媒体整理工具</p>
@@ -58,11 +61,11 @@ export function RootLayout(): React.JSX.Element {
         <div className="p-4 border-t border-[#2a2e36]">
           <div className="text-xs text-gray-400">v1.0.0 • 本地运行</div>
         </div>
-      </div>
+      </aside>
 
-      <div className="flex-1 flex flex-col min-w-0">
+      <main className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
         <Outlet />
-      </div>
+      </main>
 
       <Toaster />
     </div>

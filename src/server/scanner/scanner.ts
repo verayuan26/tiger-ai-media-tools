@@ -12,6 +12,7 @@ export interface ImportSourceInput {
   rootPath: string;
   name: string;
   incrementalScanEnabled?: boolean;
+  defaultFrameMode?: 'balanced' | 'precision';
 }
 
 export interface ImportSourceResult {
@@ -92,7 +93,10 @@ export async function importSourceDirectory(
     if (existing) {
       repos.assets.refreshChangedAsset(assetInput, stages);
     } else {
-      const asset = repos.assets.upsertAsset(assetInput);
+      const asset = repos.assets.upsertAsset({
+        ...assetInput,
+        frameMode: input.defaultFrameMode ?? 'balanced'
+      });
       repos.jobs.ensureJobs(asset.id, stages);
     }
     indexed += 1;

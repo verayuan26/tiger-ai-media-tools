@@ -72,6 +72,12 @@ export function TaskQueuePage(): React.JSX.Element {
               onClick={() =>
                 void runAction(async () => {
                   const result = await drainJobs(10);
+                  if (result.blocked) {
+                    toast.warning(result.blocked.message, {
+                      description: result.processed > 0 ? `已处理 ${result.processed} 个任务后停止` : undefined
+                    });
+                    return;
+                  }
                   toast.success(`已处理 ${result.processed} 个任务`);
                 })
               }

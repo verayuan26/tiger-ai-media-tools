@@ -94,6 +94,35 @@ describe('local API server', () => {
 
     expect(previewResponse.headers['content-type']).toMatch(/image\//);
     expect(Buffer.from(previewResponse.body).toString('utf8')).toBe('fake image bytes');
+
+    const mediaResponse = await request(app)
+      .get(`/api/assets/${searchResponse.body.assets[0].id}/media`)
+      .expect(200);
+
+    expect(mediaResponse.headers['content-type']).toMatch(/image\//);
+    expect(Buffer.from(mediaResponse.body).toString('utf8')).toBe('fake image bytes');
+  });
+
+  it('streams video assets from the import root', async () => {
+    const { dataDir, sourceDir } = createTempSource();
+    writeFileSync(path.join(sourceDir, 'factory_tour.mp4'), 'fake video bytes');
+    const app = createTestApp(dataDir);
+
+    await request(app).post('/api/sources/import').send({ rootPath: sourceDir, name: 'Factory' }).expect(200);
+
+    const assetsResponse = await request(app).get('/api/assets').expect(200);
+    const videoAsset = assetsResponse.body.assets.find(
+      (asset: { fileName: string }) => asset.fileName === 'factory_tour.mp4'
+    );
+
+    expect(videoAsset).toBeTruthy();
+
+    const mediaResponse = await request(app)
+      .get(`/api/assets/${videoAsset.id}/media`)
+      .expect(200);
+
+    expect(mediaResponse.headers['content-type']).toMatch(/video\//);
+    expect(Buffer.from(mediaResponse.body).toString('utf8')).toBe('fake video bytes');
   });
 
   it('filters assets with repeated tag query params', async () => {
@@ -428,6 +457,45 @@ describe('local API server', () => {
 
     await request(app).post('/api/assets/missing-asset/reveal').expect(404);
     await request(app).post('/api/assets/missing-asset/reanalyze').expect(404);
+    await request(app).post('/api/assets/missing-asset/precision-analyze').expect(404);
+  });
+
+  it('queues precision analyze for video assets', async () => {
+    const { dataDir, sourceDir } = createTempSource();
+    writeFileSync(path.join(sourceDir, 'factory_tour.mp4'), 'fake video bytes');
+    const app = createTestApp(dataDir);
+
+    await request(app).post('/api/sources/import').send({ rootPath: sourceDir, name: 'Factory' }).expect(200);
+    await request(app).post('/api/jobs/drain').send({ limit: 10 }).expect(200);
+
+    const assetsResponse = await request(app).get('/api/assets').expect(200);
+    const imageAsset = assetsResponse.body.assets.find(
+      (asset: { fileName: string }) => asset.fileName === 'factory_cutting.jpg'
+    );
+    const videoAsset = assetsResponse.body.assets.find(
+      (asset: { fileName: string }) => asset.fileName === 'factory_tour.mp4'
+    );
+
+    await request(app).post(`/api/assets/${imageAsset.id}/precision-analyze`).expect(422);
+
+    const precisionResponse = await request(app)
+      .post(`/api/assets/${videoAsset.id}/precision-analyze`)
+      .expect(200);
+
+    expect(precisionResponse.body.ok).toBe(true);
+    expect(precisionResponse.body.asset.frameMode).toBe('precision');
+    expect(
+      precisionResponse.body.jobs.filter((job: { stage: string }) => job.stage === 'frames' || job.stage === 'ai_vision')
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ stage: 'frames', status: 'pending' }),
+        expect.objectContaining({ stage: 'ai_vision', status: 'pending' })
+      ])
+    );
+
+    const afterDetail = await request(app).get(`/api/assets/${videoAsset.id}`).expect(200);
+    expect(afterDetail.body.frames).toEqual([]);
+    expect(afterDetail.body.tags).toEqual([]);
   });
 
   it('returns 413 JSON error for oversized JSON bodies', async () => {

@@ -99,6 +99,7 @@ describe('database schema', () => {
 
       expect(tables).toEqual([
         'analysis_jobs',
+        'app_settings',
         'asset_tags',
         'assets',
         'collection_assets',
@@ -142,7 +143,7 @@ describe('database schema', () => {
         .prepare('select version from schema_migrations order by version')
         .all();
 
-      expect(rows).toEqual([{ version: 1 }]);
+      expect(rows).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }]);
     } finally {
       second.close();
     }
@@ -818,6 +819,45 @@ describe('repositories', () => {
         '.data/thumbs/cut-2.jpg'
       ]);
       expect(repos.transcripts.listForAsset(asset.id).map((segment) => segment.text)).toEqual(['先铺布']);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('queues precision frame and vision jobs for video assets', () => {
+    const db = openDatabase(path.join(mkdtempSync(path.join(tmpdir(), 'ai-media-db-')), 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    try {
+      const source = repos.sources.upsertSource({ name: 'Factory', rootPath: '/tmp/factory' });
+      const asset = repos.assets.upsertAsset({
+        sourceId: source.id,
+        path: '/tmp/factory/cut.mp4',
+        fileName: 'cut.mp4',
+        kind: 'video',
+        extension: '.mp4',
+        sizeBytes: 12,
+        hash: 'abc',
+        modifiedAt: '2026-05-25T00:00:00.000Z'
+      });
+
+      repos.jobs.ensureJobs(asset.id, ['metadata', 'thumbnail', 'frames', 'audio', 'ai_vision', 'ai_transcript']);
+      repos.jobs.updateStatus(repos.jobs.listForAsset(asset.id).find((job) => job.stage === 'metadata')!.id, 'done');
+      repos.frames.replaceFrames(asset.id, [
+        { timestampSeconds: 0, thumbnailPath: '.data/thumbs/cut-0.jpg', strategy: 'interval' }
+      ]);
+      repos.tags.replaceAiAssetTags(asset.id, [{ displayName: '裁剪布料', confidence: 0.9 }]);
+
+      const updated = repos.assets.precisionAnalyzeAsset(asset.id);
+      expect(updated).toMatchObject({ frameMode: 'precision', status: 'partial' });
+      expect(repos.frames.listForAsset(asset.id)).toEqual([]);
+      expect(repos.tags.listForAsset(asset.id)).toEqual([]);
+      expect(
+        repos.jobs
+          .listForAsset(asset.id)
+          .filter((job) => job.stage === 'frames' || job.stage === 'ai_vision')
+          .map((job) => job.status)
+      ).toEqual(['pending', 'pending']);
     } finally {
       db.close();
     }

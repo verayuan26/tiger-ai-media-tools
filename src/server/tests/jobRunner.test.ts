@@ -280,4 +280,39 @@ describe('job runner', () => {
       closeDb(db);
     }
   });
+
+  it('uses asset precision frame mode when extracting frames', async () => {
+    mediaMock.probeMedia.mockResolvedValue({ durationSeconds: 9, width: 1920, height: 1080 });
+    mediaMock.extractVideoFrames.mockResolvedValue([
+      { timestampSeconds: 0, thumbnailPath: '/tmp/frame-0.jpg' },
+      { timestampSeconds: 3, thumbnailPath: '/tmp/frame-3.jpg' }
+    ]);
+
+    const { db, repos, context } = createTestContext();
+    try {
+      const asset = createAsset(repos, {
+        fileName: 'factory-tour.mp4',
+        kind: 'video',
+        path: '/tmp/factory/factory-tour.mp4',
+        extension: '.mp4'
+      });
+      repos.assets.setMetadata(asset.id, { durationSeconds: 9, width: 1920, height: 1080, status: 'partial' });
+      repos.jobs.ensureJobs(asset.id, ['metadata', 'thumbnail', 'frames', 'audio', 'ai_vision', 'ai_transcript']);
+      for (const job of repos.jobs.listForAsset(asset.id)) {
+        if (job.stage !== 'frames' && job.stage !== 'ai_vision') {
+          repos.jobs.updateStatus(job.id, 'done');
+        }
+      }
+      repos.assets.precisionAnalyzeAsset(asset.id);
+
+      await expect(processNextJob(context)).resolves.toBe(true);
+
+      expect(mediaMock.extractVideoFrames).toHaveBeenCalledWith(
+        expect.objectContaining({ mode: 'precision', durationSeconds: 9 })
+      );
+      expect(repos.frames.listForAsset(asset.id).every((frame) => frame.strategy === 'precision')).toBe(true);
+    } finally {
+      closeDb(db);
+    }
+  });
 });

@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 4;
 
 export const CREATE_SCHEMA_SQL = `
 create table if not exists schema_migrations (
@@ -30,6 +30,7 @@ create table if not exists assets (
   height integer,
   status text not null check (status in ('pending', 'processing', 'partial', 'done', 'failed', 'skipped')),
   thumbnail_path text,
+  frame_mode text not null default 'balanced' check (frame_mode in ('balanced', 'precision')),
   created_at text not null,
   updated_at text not null
 );
@@ -101,6 +102,23 @@ create index if not exists idx_frames_asset on video_frames(asset_id);
 create index if not exists idx_transcripts_asset on transcript_segments(asset_id);
 create index if not exists idx_jobs_status on analysis_jobs(status);
 create index if not exists idx_jobs_asset on analysis_jobs(asset_id);
+
+create table if not exists app_settings (
+  id text primary key,
+  api_protocol text not null default 'openai',
+  api_endpoint text not null default 'https://api.openai.com/v1',
+  api_key text not null default '',
+  ai_provider_name text not null default 'mock' check (ai_provider_name in ('mock', 'openai-compatible')),
+  open_ai_vision_model text not null default '',
+  open_ai_transcribe_model text not null default '',
+  daily_budget_yuan integer not null default 50,
+  concurrent_tasks integer not null default 3,
+  precision_mode_default integer not null default 0,
+  reuse_parsed_results integer not null default 1,
+  daily_spend_cents integer not null default 0,
+  spend_day text not null default '',
+  updated_at text not null
+);
 
 create trigger if not exists asset_tags_validate_asset_target_insert
 before insert on asset_tags

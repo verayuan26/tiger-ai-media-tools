@@ -16,7 +16,8 @@ import type {
   TagSource,
   TagTargetType,
   TranscriptSegment,
-  VideoFrame
+  VideoFrame,
+  FrameMode
 } from '../../shared/types';
 import { JOB_STAGES } from '../../shared/constants';
 
@@ -43,6 +44,7 @@ interface AssetInput {
   sizeBytes: number;
   hash: string;
   modifiedAt: string;
+  frameMode?: FrameMode;
 }
 
 interface MetadataInput {
@@ -121,6 +123,7 @@ function mapAsset(row: Row): Asset {
     height: row.height === null ? null : Number(row.height),
     status: row.status as JobStatus,
     thumbnailPath: row.thumbnail_path === null ? null : String(row.thumbnail_path),
+    frameMode: (row.frame_mode === 'precision' ? 'precision' : 'balanced') as FrameMode,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   };
@@ -272,11 +275,12 @@ export function createRepositories(db: LibraryDatabase) {
       }
 
       const id = createId('asset');
+      const frameMode = input.frameMode ?? 'balanced';
       db.prepare(
         `insert into assets
           (id, source_id, path, file_name, kind, extension, size_bytes, hash, modified_at,
-           duration_seconds, width, height, status, thumbnail_path, created_at, updated_at)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, null, null, null, 'pending', null, ?, ?)`
+           duration_seconds, width, height, status, thumbnail_path, frame_mode, created_at, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, null, null, null, 'pending', null, ?, ?, ?)`
       ).run(
         id,
         input.sourceId,
@@ -287,6 +291,7 @@ export function createRepositories(db: LibraryDatabase) {
         input.sizeBytes,
         input.hash,
         input.modifiedAt,
+        frameMode,
         timestamp,
         timestamp
       );
@@ -349,6 +354,26 @@ export function createRepositories(db: LibraryDatabase) {
       });
 
       reanalyze();
+      return assets.getById(id);
+    },
+
+    precisionAnalyzeAsset(id: string): Asset | null {
+      const existing = assets.getById(id);
+      if (!existing || existing.kind !== 'video') return null;
+
+      const precision = db.transaction(() => {
+        const timestamp = nowIso();
+        db.prepare(`update assets set frame_mode = ?, status = 'partial', updated_at = ? where id = ?`).run(
+          'precision',
+          timestamp,
+          id
+        );
+        db.prepare('delete from video_frames where asset_id = ?').run(id);
+        tags.clearGeneratedForAsset(id);
+        jobs.resetJobs(id, ['frames', 'ai_vision']);
+      });
+
+      precision();
       return assets.getById(id);
     },
 
@@ -915,3 +940,5 @@ export function createRepositories(db: LibraryDatabase) {
 
   return { sources, assets, jobs, tags, frames, transcripts };
 }
+
+export { createSettingsRepository } from './settingsRepository';

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   CheckCircle,
   DollarSign,
@@ -11,6 +11,7 @@ import {
   Zap
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { getSettings, patchSettings, testAiConnection } from '../api';
 import { PageHeader } from '../components/PageHeader';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
@@ -25,40 +26,127 @@ import {
 } from '../components/ui/select';
 import { Slider } from '../components/ui/slider';
 import { Switch } from '../components/ui/switch';
+import type { AiProviderName, ApiProtocol } from '../../shared/settings';
 
 export function SettingsPage(): React.JSX.Element {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [dailyBudget, setDailyBudget] = useState([50]);
   const [concurrentTasks, setConcurrentTasks] = useState([3]);
-  const [apiProtocol, setApiProtocol] = useState('openai');
+  const [apiProtocol, setApiProtocol] = useState<ApiProtocol>('openai');
   const [apiEndpoint, setApiEndpoint] = useState('https://api.openai.com/v1');
+  const [aiProviderName, setAiProviderName] = useState<AiProviderName>('mock');
   const [apiKey, setApiKey] = useState('');
+  const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
+  const [openAiVisionModel, setOpenAiVisionModel] = useState('');
+  const [openAiTranscribeModel, setOpenAiTranscribeModel] = useState('');
+  const [precisionModeDefault, setPrecisionModeDefault] = useState(false);
+  const [reuseParsedResults, setReuseParsedResults] = useState(true);
+  const [dailySpendYuan, setDailySpendYuan] = useState(0);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
+  const [testMessage, setTestMessage] = useState('');
+
+  useEffect(() => {
+    void loadSettings();
+  }, []);
+
+  async function loadSettings(): Promise<void> {
+    setLoading(true);
+    try {
+      const settings = await getSettings();
+      setApiProtocol(settings.apiProtocol);
+      setApiEndpoint(settings.apiEndpoint);
+      setAiProviderName(settings.aiProviderName);
+      setApiKeyConfigured(settings.apiKeyConfigured);
+      setApiKey('');
+      setOpenAiVisionModel(settings.openAiVisionModel);
+      setOpenAiTranscribeModel(settings.openAiTranscribeModel);
+      setDailyBudget([settings.dailyBudgetYuan]);
+      setConcurrentTasks([settings.concurrentTasks]);
+      setPrecisionModeDefault(settings.precisionModeDefault);
+      setReuseParsedResults(settings.reuseParsedResults);
+      setDailySpendYuan(settings.dailySpendYuan);
+    } catch (error) {
+      toast.error('加载设置失败', {
+        description: error instanceof Error ? error.message : '请稍后重试'
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleTestConnection(): Promise<void> {
     setTesting(true);
     setTestResult(null);
+    setTestMessage('');
 
     try {
-      const response = await fetch('/api/health');
-      if (!response.ok) throw new Error('health check failed');
-      setTestResult('success');
-      toast.success('连接成功', {
-        description: '本地服务连接正常；云端 AI Key 需在服务端环境变量中配置后生效'
+      const result = await testAiConnection({
+        apiProtocol,
+        apiEndpoint,
+        aiProviderName,
+        openAiVisionModel: openAiVisionModel.trim(),
+        openAiTranscribeModel: openAiTranscribeModel.trim(),
+        ...(apiKey.trim().length > 0 ? { apiKey: apiKey.trim() } : {})
       });
-    } catch {
+
+      if (result.ok) {
+        setTestResult('success');
+        setTestMessage(result.message);
+        toast.success('连接成功', { description: result.message });
+      } else {
+        setTestResult('error');
+        setTestMessage(result.message);
+        toast.error('连接失败', { description: result.message });
+      }
+    } catch (error) {
       setTestResult('error');
-      toast.error('连接失败', { description: '请检查 API Key 和端点地址是否正确' });
+      const message = error instanceof Error ? error.message : '请检查 API Key 和端点地址';
+      setTestMessage(message);
+      toast.error('连接失败', { description: message });
     } finally {
       setTesting(false);
     }
   }
 
-  function handleSaveSettings(): void {
-    toast.success('设置已保存', {
-      description: '偏好已写入当前会话；服务端持久化将在后续版本提供'
-    });
+  async function handleSaveSettings(): Promise<void> {
+    setSaving(true);
+    try {
+      const settings = await patchSettings({
+        apiProtocol,
+        apiEndpoint,
+        aiProviderName,
+        openAiVisionModel: openAiVisionModel.trim(),
+        openAiTranscribeModel: openAiTranscribeModel.trim(),
+        dailyBudgetYuan: dailyBudget[0],
+        concurrentTasks: concurrentTasks[0],
+        precisionModeDefault,
+        reuseParsedResults,
+        ...(apiKey.trim().length > 0 ? { apiKey: apiKey.trim() } : {})
+      });
+      setApiKeyConfigured(settings.apiKeyConfigured);
+      setApiKey('');
+      setOpenAiVisionModel(settings.openAiVisionModel);
+      setOpenAiTranscribeModel(settings.openAiTranscribeModel);
+      setDailySpendYuan(settings.dailySpendYuan);
+      toast.success('设置已保存', { description: '配置已写入本地数据库，重启服务后仍生效' });
+    } catch (error) {
+      toast.error('保存失败', {
+        description: error instanceof Error ? error.message : '请稍后重试'
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <Loader2 className="size-6 animate-spin text-gray-500" />
+      </div>
+    );
   }
 
   return (
@@ -80,8 +168,21 @@ export function SettingsPage(): React.JSX.Element {
 
             <div className="space-y-4">
               <div>
+                <Label htmlFor="ai-provider">AI 提供方</Label>
+                <Select value={aiProviderName} onValueChange={(value) => setAiProviderName(value as AiProviderName)}>
+                  <SelectTrigger className="mt-2" id="ai-provider">
+                    <SelectValue placeholder="选择提供方" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mock">本地 Mock（默认，不上传）</SelectItem>
+                    <SelectItem value="openai-compatible">OpenAI 兼容 API</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
                 <Label htmlFor="api-protocol">协议类型</Label>
-                <Select value={apiProtocol} onValueChange={setApiProtocol}>
+                <Select value={apiProtocol} onValueChange={(value) => setApiProtocol(value as ApiProtocol)}>
                   <SelectTrigger className="mt-2" id="api-protocol">
                     <SelectValue placeholder="选择协议类型" />
                   </SelectTrigger>
@@ -107,6 +208,36 @@ export function SettingsPage(): React.JSX.Element {
                 <p className="text-xs text-gray-500 mt-2">可以配置为自建代理或第三方服务地址</p>
               </div>
 
+              {aiProviderName === 'openai-compatible' ? (
+                <>
+                  <div>
+                    <Label htmlFor="vision-model">视觉识别模型</Label>
+                    <Input
+                      id="vision-model"
+                      type="text"
+                      value={openAiVisionModel}
+                      onChange={(event) => setOpenAiVisionModel(event.target.value)}
+                      placeholder="gpt-4o-mini"
+                      className="mt-2"
+                    />
+                    <p className="text-xs text-gray-500 mt-2">用于图片/视频关键帧标签分析</p>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="transcribe-model">语音转写模型</Label>
+                    <Input
+                      id="transcribe-model"
+                      type="text"
+                      value={openAiTranscribeModel}
+                      onChange={(event) => setOpenAiTranscribeModel(event.target.value)}
+                      placeholder="whisper-1"
+                      className="mt-2"
+                    />
+                    <p className="text-xs text-gray-500 mt-2">用于音频片段转写</p>
+                  </div>
+                </>
+              ) : null}
+
               <div>
                 <Label htmlFor="api-key">API Key</Label>
                 <div className="flex gap-2 mt-2">
@@ -117,7 +248,7 @@ export function SettingsPage(): React.JSX.Element {
                       value={apiKey}
                       onChange={(event) => setApiKey(event.target.value)}
                       className="pr-10"
-                      placeholder="sk-..."
+                      placeholder={apiKeyConfigured ? '已保存，留空则不修改' : 'sk-...'}
                     />
                     <button
                       type="button"
@@ -147,17 +278,17 @@ export function SettingsPage(): React.JSX.Element {
                     {testResult === 'success' ? (
                       <>
                         <CheckCircle className="size-4" />
-                        <span>连接成功</span>
+                        <span>{testMessage || '连接成功'}</span>
                       </>
                     ) : (
                       <>
                         <XCircle className="size-4" />
-                        <span>连接失败，请检查配置</span>
+                        <span>{testMessage || '连接失败，请检查配置'}</span>
                       </>
                     )}
                   </div>
                 ) : null}
-                <p className="text-xs text-gray-500 mt-2">API Key 仅保存在本地，不会上传到云端</p>
+                <p className="text-xs text-gray-500 mt-2">API Key 保存在本地 SQLite，不会上传到第三方控制台</p>
               </div>
 
               <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
@@ -189,7 +320,9 @@ export function SettingsPage(): React.JSX.Element {
                   <span className="text-sm font-medium text-gray-900">¥{dailyBudget[0]}</span>
                 </div>
                 <Slider value={dailyBudget} onValueChange={setDailyBudget} min={10} max={500} step={10} className="mb-2" />
-                <p className="text-xs text-gray-500">达到每日预算后，新任务将暂停，次日自动恢复</p>
+                <p className="text-xs text-gray-500">
+                  今日已用 ¥{dailySpendYuan.toFixed(2)}；达到预算后新的 AI 任务将被拒绝
+                </p>
               </div>
 
               <div>
@@ -205,7 +338,7 @@ export function SettingsPage(): React.JSX.Element {
                   step={1}
                   className="mb-2"
                 />
-                <p className="text-xs text-gray-500">控制同时处理的任务数量，避免 API 限流</p>
+                <p className="text-xs text-gray-500">控制同时处于 processing 状态的任务数量</p>
               </div>
 
               <div className="flex items-center justify-between p-4 border rounded-lg">
@@ -213,7 +346,7 @@ export function SettingsPage(): React.JSX.Element {
                   <p className="font-medium text-gray-900">精查模式默认开关</p>
                   <p className="text-sm text-gray-600 mt-1">开启后视频默认每 3 秒抽一帧（可能增加成本）</p>
                 </div>
-                <Switch />
+                <Switch checked={precisionModeDefault} onCheckedChange={setPrecisionModeDefault} />
               </div>
             </div>
           </Card>
@@ -235,7 +368,7 @@ export function SettingsPage(): React.JSX.Element {
                   <p className="font-medium text-gray-900">复用已解析结果</p>
                   <p className="text-sm text-gray-600 mt-1">相同文件（基于 hash）自动复用标签和字幕</p>
                 </div>
-                <Switch defaultChecked />
+                <Switch checked={reuseParsedResults} onCheckedChange={setReuseParsedResults} />
               </div>
 
               <div className="p-4 bg-gray-50 border rounded-lg">
@@ -298,9 +431,22 @@ export function SettingsPage(): React.JSX.Element {
           </Card>
 
           <div className="flex justify-end gap-3 pt-4">
-            <Button variant="outline">取消</Button>
-            <Button className="bg-[#4a6fa5] hover:bg-[#3d5a8a]" onClick={handleSaveSettings}>
-              保存设置
+            <Button variant="outline" onClick={() => void loadSettings()} disabled={saving}>
+              重置
+            </Button>
+            <Button
+              className="bg-[#4a6fa5] hover:bg-[#3d5a8a]"
+              onClick={() => void handleSaveSettings()}
+              disabled={saving}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                  保存中
+                </>
+              ) : (
+                '保存设置'
+              )}
             </Button>
           </div>
         </div>

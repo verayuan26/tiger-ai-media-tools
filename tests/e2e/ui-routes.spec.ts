@@ -22,8 +22,7 @@ test.describe('UI route shell', () => {
       if (item.marker === 'search') {
         await expect(page.getByPlaceholder('搜索文件名、标签、字幕内容...')).toBeVisible();
       } else {
-        const main = page.locator('div.flex-1.flex.flex-col.min-w-0');
-        await expect(main.getByRole('heading', { name: item.title, level: 1 })).toBeVisible();
+        await expect(page.getByRole('heading', { name: item.title, level: 1 })).toBeVisible();
       }
     }
   });

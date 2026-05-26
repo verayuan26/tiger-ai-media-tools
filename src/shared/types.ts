@@ -1,6 +1,7 @@
 import type { JOB_STAGES, JOB_STATUSES } from './constants';
 
 export type MediaKind = 'image' | 'video' | 'audio';
+export type FrameMode = 'balanced' | 'precision';
 export type JobStatus = (typeof JOB_STATUSES)[number];
 export type JobStage = (typeof JOB_STAGES)[number];
 export type TagSource = 'system' | 'ai' | 'user';
@@ -30,6 +31,7 @@ export interface Asset {
   height: number | null;
   status: JobStatus;
   thumbnailPath: string | null;
+  frameMode: FrameMode;
   createdAt: string;
   updatedAt: string;
 }

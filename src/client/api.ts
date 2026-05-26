@@ -11,6 +11,13 @@ import type {
   TranscriptSegment,
   VideoFrameWithTags
 } from '../shared/types';
+import type {
+  AppSettings,
+  AppSettingsPatch,
+  DrainBlockedInfo,
+  TestAiConnectionInput,
+  TestAiConnectionResult
+} from '../shared/settings';
 
 export interface AssetDetailTag {
   displayName: string;
@@ -35,6 +42,7 @@ export interface ImportSourceResponse {
 export interface DrainJobsResponse {
   processed: number;
   summary: QueueSummary;
+  blocked: DrainBlockedInfo | null;
 }
 
 export interface RetryFailedResponse {
@@ -117,6 +125,14 @@ export async function reanalyzeAsset(assetId: string): Promise<AssetDetailRespon
   return getAssetDetail(assetId);
 }
 
+export async function precisionAnalyzeAsset(assetId: string): Promise<AssetDetailResponse> {
+  await request<{ ok: boolean; asset: Asset; jobs: AnalysisJob[] }>(
+    `/api/assets/${encodeURIComponent(assetId)}/precision-analyze`,
+    { method: 'POST' }
+  );
+  return getAssetDetail(assetId);
+}
+
 export async function getQueueSummary(): Promise<QueueSummary> {
   const response = await request<{ summary: QueueSummary }>('/api/queue');
   return response.summary;
@@ -156,11 +172,49 @@ export async function rescanSource(sourceId: string): Promise<ImportSourceRespon
   });
 }
 
-export async function drainJobs(limit = 10): Promise<DrainJobsResponse> {
-  return request<DrainJobsResponse>('/api/jobs/drain', {
+export async function getSettings(): Promise<AppSettings> {
+  const response = await request<{ settings: AppSettings }>('/api/settings');
+  return response.settings;
+}
+
+export async function patchSettings(input: AppSettingsPatch): Promise<AppSettings> {
+  const response = await request<{ settings: AppSettings }>('/api/settings', {
+    method: 'PATCH',
+    body: JSON.stringify(input)
+  });
+  return response.settings;
+}
+
+export async function testAiConnection(input: TestAiConnectionInput = {}): Promise<TestAiConnectionResult> {
+  const response = await fetch('/api/settings/test-ai', {
     method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(input)
+  });
+  const payload = await parseJson(response);
+  if (!response.ok && !isTestAiResult(payload)) {
+    throw createApiError(payload, response.status);
+  }
+  return payload as TestAiConnectionResult;
+}
+
+export async function drainJobs(limit = 10): Promise<DrainJobsResponse> {
+  const response = await fetch('/api/jobs/drain', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json'
+    },
     body: JSON.stringify({ limit })
   });
+  const payload = await parseJson(response);
+  if (!response.ok && !isDrainJobsResponse(payload)) {
+    throw createApiError(payload, response.status);
+  }
+  return payload as DrainJobsResponse;
 }
 
 export async function retryFailed(assetId?: string): Promise<RetryFailedResponse> {
@@ -221,4 +275,22 @@ function isNestedApiError(payload: unknown): payload is { error: { message: stri
 
   const error = (payload as { error: unknown }).error;
   return Boolean(error && typeof error === 'object' && typeof (error as { message?: unknown }).message === 'string');
+}
+
+function isTestAiResult(payload: unknown): payload is TestAiConnectionResult {
+  return (
+    Boolean(payload) &&
+    typeof payload === 'object' &&
+    typeof (payload as TestAiConnectionResult).ok === 'boolean' &&
+    typeof (payload as TestAiConnectionResult).message === 'string'
+  );
+}
+
+function isDrainJobsResponse(payload: unknown): payload is DrainJobsResponse {
+  return (
+    Boolean(payload) &&
+    typeof payload === 'object' &&
+    typeof (payload as DrainJobsResponse).processed === 'number' &&
+    'summary' in (payload as DrainJobsResponse)
+  );
 }

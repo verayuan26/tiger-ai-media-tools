@@ -1,7 +1,8 @@
 import { constants } from 'node:fs';
 import { access, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { resolveAssetPreviewPath } from '../media/preview';
+import { lookup } from 'mime-types';
+import { resolveAssetMediaPath, resolveAssetPreviewPath } from '../media/preview';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { createRepositories } from '../db/repositories';
@@ -9,14 +10,17 @@ import type { AiProvider } from '../ai/provider';
 import { revealInFileManager } from '../media/revealInFileManager';
 import { importSourceDirectory } from '../scanner/scanner';
 import { drainQueue } from '../jobs/jobRunner';
+import type { createSettingsService } from '../settings/settingsService';
 
 type Repositories = ReturnType<typeof createRepositories>;
+type SettingsService = ReturnType<typeof createSettingsService>;
 
 export interface ApiRouteContext {
   repos: Repositories;
   aiProvider: AiProvider;
   dataDir: string;
   enableDevRoutes: boolean;
+  settingsService: SettingsService;
 }
 
 const importSourceSchema = z.object({
@@ -52,12 +56,60 @@ const listJobsSchema = z.object({
   limit: z.number().int().min(1).max(200).optional().default(50)
 });
 
+const aiProviderNameSchema = z.enum(['mock', 'openai-compatible']);
+const apiProtocolSchema = z.enum(['openai', 'anthropic', 'azure', 'custom']);
+
+const patchSettingsSchema = z
+  .object({
+    apiProtocol: apiProtocolSchema.optional(),
+    apiEndpoint: z.string().trim().min(1).optional(),
+    apiKey: z.string().optional(),
+    aiProviderName: aiProviderNameSchema.optional(),
+    openAiVisionModel: z.string().trim().optional(),
+    openAiTranscribeModel: z.string().trim().optional(),
+    dailyBudgetYuan: z.number().int().min(10).max(500).optional(),
+    concurrentTasks: z.number().int().min(1).max(10).optional(),
+    precisionModeDefault: z.boolean().optional(),
+    reuseParsedResults: z.boolean().optional()
+  })
+  .refine((input) => Object.keys(input).length > 0, {
+    message: 'At least one field is required'
+  });
+
+const testAiSchema = z.object({
+  apiProtocol: apiProtocolSchema.optional(),
+  apiEndpoint: z.string().trim().min(1).optional(),
+  apiKey: z.string().optional(),
+  aiProviderName: aiProviderNameSchema.optional(),
+  openAiVisionModel: z.string().trim().min(1).optional(),
+  openAiTranscribeModel: z.string().trim().min(1).optional()
+});
+
 export function createApiRouter(context: ApiRouteContext): Router {
   const router = Router();
 
   router.get('/health', (_req, res) => {
     res.json({ ok: true });
   });
+
+  router.get('/settings', (_req, res) => {
+    res.json({ settings: context.settingsService.getSettings() });
+  });
+
+  router.patch('/settings', (req, res) => {
+    const input = patchSettingsSchema.parse(req.body);
+    const settings = context.settingsService.patchSettings(input);
+    res.json({ settings });
+  });
+
+  router.post(
+    '/settings/test-ai',
+    asyncHandler(async (req, res) => {
+      const input = testAiSchema.parse(req.body ?? {});
+      const result = await context.settingsService.testAiConnection(input);
+      res.status(result.ok ? 200 : 400).json(result);
+    })
+  );
 
   router.get('/sources', (_req, res) => {
     res.json({ sources: context.repos.sources.listWithStats() });
@@ -85,7 +137,10 @@ export function createApiRouter(context: ApiRouteContext): Router {
     asyncHandler(async (req, res) => {
       const input = importSourceSchema.parse(req.body);
       await assertReadableDirectory(input.rootPath);
-      const result = await importSourceDirectory(context.repos, input);
+      const result = await importSourceDirectory(context.repos, {
+        ...input,
+        defaultFrameMode: context.settingsService.getFrameMode()
+      });
       res.json(result);
     })
   );
@@ -131,7 +186,8 @@ export function createApiRouter(context: ApiRouteContext): Router {
       const result = await importSourceDirectory(context.repos, {
         rootPath: source.rootPath,
         name: source.name,
-        incrementalScanEnabled: source.incrementalScanEnabled
+        incrementalScanEnabled: source.incrementalScanEnabled,
+        defaultFrameMode: context.settingsService.getFrameMode()
       });
       res.json(result);
     })
@@ -146,7 +202,10 @@ export function createApiRouter(context: ApiRouteContext): Router {
           name: '牛仔面料工厂'
         };
         await assertReadableDirectory(input.rootPath);
-        const result = await importSourceDirectory(context.repos, input);
+        const result = await importSourceDirectory(context.repos, {
+          ...input,
+          defaultFrameMode: context.settingsService.getFrameMode()
+        });
         res.json(result);
       })
     );
@@ -223,6 +282,30 @@ export function createApiRouter(context: ApiRouteContext): Router {
     })
   );
 
+  router.post(
+    '/assets/:id/precision-analyze',
+    asyncHandler(async (req, res, next) => {
+      const existing = context.repos.assets.getById(req.params.id);
+      if (!existing) {
+        next(new HttpError(404, 'Asset not found'));
+        return;
+      }
+
+      if (existing.kind !== 'video') {
+        next(new HttpError(422, 'Precision analyze is only available for video assets'));
+        return;
+      }
+
+      const asset = context.repos.assets.precisionAnalyzeAsset(existing.id);
+      if (!asset) {
+        next(new HttpError(404, 'Asset not found'));
+        return;
+      }
+
+      res.json({ ok: true, asset, jobs: context.repos.jobs.listForAsset(asset.id) });
+    })
+  );
+
   router.get(
     '/assets/:id/preview',
     asyncHandler(async (req, res, next) => {
@@ -257,6 +340,39 @@ export function createApiRouter(context: ApiRouteContext): Router {
     })
   );
 
+  router.get(
+    '/assets/:id/media',
+    asyncHandler(async (req, res, next) => {
+      const asset = context.repos.assets.getById(req.params.id);
+      if (!asset) {
+        next(new HttpError(404, 'Asset not found'));
+        return;
+      }
+
+      const source = context.repos.sources.getById(asset.sourceId);
+      const mediaPath = resolveAssetMediaPath({
+        asset,
+        sourceRootPath: source?.rootPath ?? null
+      });
+
+      if (!mediaPath) {
+        next(new HttpError(404, 'Media not available'));
+        return;
+      }
+
+      try {
+        await access(mediaPath, constants.R_OK);
+      } catch {
+        next(new HttpError(404, 'Media not available'));
+        return;
+      }
+
+      const contentType = lookup(mediaPath) || 'application/octet-stream';
+      res.type(contentType);
+      res.sendFile(mediaPath);
+    })
+  );
+
   router.get('/queue', (_req, res) => {
     res.json({ summary: context.repos.jobs.summary() });
   });
@@ -265,8 +381,35 @@ export function createApiRouter(context: ApiRouteContext): Router {
     '/jobs/drain',
     asyncHandler(async (req, res) => {
       const { limit } = drainJobsSchema.parse(req.body ?? {});
-      const processed = await drainQueue({ ...context, frameMode: 'balanced' }, limit);
-      res.json({ processed, summary: context.repos.jobs.summary() });
+      const aiProvider = context.settingsService.resolveAiProvider();
+      const drainResult = await drainQueue(
+        {
+          repos: context.repos,
+          aiProvider,
+          dataDir: context.dataDir,
+          frameMode: context.settingsService.getFrameMode(),
+          checkDrainLimits: (processingCount) => context.settingsService.checkDrainLimits(processingCount),
+          checkJobBudget: (job) => context.settingsService.checkJobBudget(job),
+          onAiJobCompleted: (job) => context.settingsService.recordAiJobSpend(job)
+        },
+        { limit }
+      );
+
+      const payload =
+        typeof drainResult === 'number'
+          ? { processed: drainResult, blocked: null as null }
+          : drainResult;
+
+      if (payload.blocked) {
+        res.status(429).json({
+          processed: payload.processed,
+          blocked: payload.blocked,
+          summary: context.repos.jobs.summary()
+        });
+        return;
+      }
+
+      res.json({ processed: payload.processed, blocked: null, summary: context.repos.jobs.summary() });
     })
   );
 

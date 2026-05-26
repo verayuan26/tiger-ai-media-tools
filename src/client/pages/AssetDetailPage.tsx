@@ -16,14 +16,32 @@ import {
 import {
   ApiError,
   getAssetDetail,
+  precisionAnalyzeAsset,
   reanalyzeAsset,
   revealAssetInFileManager,
   type AssetDetailResponse
 } from '../api';
-import { getAssetThumbnailUrl, getGeneratedFrameThumbnailUrl } from '../lib/media-url';
+import { getAssetMediaUrl, getAssetThumbnailUrl, getGeneratedFrameThumbnailUrl } from '../lib/media-url';
 import type { Asset, MediaKind } from '../../shared/types';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '../components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from '../components/ui/dialog';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Separator } from '../components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
@@ -34,7 +52,9 @@ export function AssetDetailPage(): React.JSX.Element {
   const navigate = useNavigate();
   const [detail, setDetail] = useState<AssetDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [actionBusy, setActionBusy] = useState<'reveal' | 'reanalyze' | null>(null);
+  const [actionBusy, setActionBusy] = useState<'reveal' | 'reanalyze' | 'precision' | null>(null);
+  const [precisionConfirmOpen, setPrecisionConfirmOpen] = useState(false);
+  const [zoomedFrame, setZoomedFrame] = useState<{ url: string; timestampSeconds: number } | null>(null);
 
   useEffect(() => {
     if (!assetId) {
@@ -85,8 +105,22 @@ export function AssetDetailPage(): React.JSX.Element {
     );
   }
 
-  const { asset, tags, frames, transcripts } = detail;
-  const previewUrl = getAssetThumbnailUrl(asset.id, asset.thumbnailPath);
+  const { asset, tags, frames, transcripts, jobs } = detail;
+  const precisionJobsPending = jobs.some(
+    (job) => (job.stage === 'frames' || job.stage === 'ai_vision') && job.status === 'pending'
+  );
+  const precisionJobsProcessing = jobs.some(
+    (job) => (job.stage === 'frames' || job.stage === 'ai_vision') && job.status === 'processing'
+  );
+  const precisionActive = asset.frameMode === 'precision';
+  const precisionBusy = actionBusy === 'precision' || precisionJobsPending || precisionJobsProcessing;
+  const precisionButtonLabel = precisionBusy
+    ? '精查进行中…'
+    : precisionActive
+      ? '已开启精查模式'
+      : '开启精查模式';
+  const precisionButtonDisabled =
+    asset.kind !== 'video' || actionBusy !== null || precisionBusy || precisionActive;
 
   return (
     <div className="flex-1 flex flex-col h-full bg-white min-h-0">
@@ -107,19 +141,27 @@ export function AssetDetailPage(): React.JSX.Element {
 
       <ScrollArea className="flex-1 min-h-0">
         <div className="max-w-6xl mx-auto p-6 space-y-6">
-          <div className="rounded-lg overflow-hidden bg-gray-100">
-            <div className="aspect-video flex items-center justify-center">
-              {previewUrl ? (
-                <img
-                  src={previewUrl}
-                  alt={asset.fileName}
-                  className="max-w-full max-h-full object-contain"
-                />
-              ) : (
-                <span className="text-muted-foreground">{asset.extension.replace('.', '').toUpperCase()}</span>
-              )}
-            </div>
-          </div>
+          <AssetPreview asset={asset} />
+
+          <Dialog open={zoomedFrame !== null} onOpenChange={(open) => !open && setZoomedFrame(null)}>
+            <DialogContent className="sm:max-w-4xl p-0 gap-0 overflow-hidden">
+              {zoomedFrame ? (
+                <>
+                  <DialogHeader className="px-6 pt-6 pb-2">
+                    <DialogTitle>关键帧 {formatDuration(zoomedFrame.timestampSeconds)}</DialogTitle>
+                    <DialogDescription className="sr-only">放大预览关键帧缩略图</DialogDescription>
+                  </DialogHeader>
+                  <div className="px-6 pb-6">
+                    <img
+                      src={zoomedFrame.url}
+                      alt=""
+                      className="w-full max-h-[70vh] object-contain rounded-md bg-gray-100"
+                    />
+                  </div>
+                </>
+              ) : null}
+            </DialogContent>
+          </Dialog>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
@@ -179,19 +221,27 @@ export function AssetDetailPage(): React.JSX.Element {
                             const frameThumb = getGeneratedFrameThumbnailUrl(frame.thumbnailPath);
                             return (
                               <div key={frame.id} className="border rounded-lg overflow-hidden">
-                                <div className="aspect-video bg-gray-100">
+                                <button
+                                  type="button"
+                                  className="aspect-video bg-gray-100 w-full block cursor-zoom-in disabled:cursor-default"
+                                  disabled={!frameThumb}
+                                  onClick={() => {
+                                    if (frameThumb) {
+                                      setZoomedFrame({
+                                        url: frameThumb,
+                                        timestampSeconds: frame.timestampSeconds
+                                      });
+                                    }
+                                  }}
+                                >
                                   {frameThumb ? (
-                                    <img
-                                      src={frameThumb}
-                                      alt=""
-                                      className="size-full object-cover"
-                                    />
+                                    <img src={frameThumb} alt="" className="size-full object-cover" />
                                   ) : (
                                     <div className="size-full flex items-center justify-center text-xs text-muted-foreground">
                                       无预览
                                     </div>
                                   )}
-                                </div>
+                                </button>
                                 <div className="p-3">
                                   <div className="flex items-center justify-between mb-2">
                                     <span className="text-sm font-medium text-gray-900">
@@ -287,11 +337,31 @@ export function AssetDetailPage(): React.JSX.Element {
                   variant="outline"
                   type="button"
                   className="w-full justify-start border-amber-300 text-amber-700 hover:bg-amber-50"
-                  disabled
+                  disabled={precisionButtonDisabled}
+                  onClick={() => setPrecisionConfirmOpen(true)}
                 >
-                  <Zap className="size-4 mr-2" />
-                  <span className="flex-1 text-left">开启精查模式</span>
+                  <Zap className={`size-4 mr-2 ${precisionBusy ? 'animate-pulse' : ''}`} />
+                  <span className="flex-1 text-left">{precisionButtonLabel}</span>
                 </Button>
+                <AlertDialog open={precisionConfirmOpen} onOpenChange={setPrecisionConfirmOpen}>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>开启精查模式？</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        将按每 3 秒抽一帧重新生成关键帧，并重新排队 AI 视觉分析。该操作可能显著增加抽帧数量与云端调用成本。
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>取消</AlertDialogCancel>
+                      <AlertDialogAction
+                        className="bg-amber-600 hover:bg-amber-700"
+                        onClick={() => void handlePrecisionAnalyze(asset.id, setDetail, setActionBusy, setPrecisionConfirmOpen)}
+                      >
+                        确认开启
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                   <p className="text-xs text-amber-800">每 3 秒抽一帧，可能增加云端调用成本</p>
                 </div>
@@ -300,6 +370,50 @@ export function AssetDetailPage(): React.JSX.Element {
           </div>
         </div>
       </ScrollArea>
+    </div>
+  );
+}
+
+function AssetPreview({ asset }: { asset: Asset }): React.JSX.Element {
+  const mediaUrl = getAssetMediaUrl(asset.id);
+  const thumbnailUrl = getAssetThumbnailUrl(asset.id, asset.thumbnailPath);
+
+  return (
+    <div className="rounded-lg overflow-hidden bg-gray-100">
+      <div className="aspect-video flex items-center justify-center">
+        {asset.kind === 'video' ? (
+          <video
+            key={mediaUrl}
+            src={mediaUrl}
+            controls
+            playsInline
+            preload="metadata"
+            className="max-w-full max-h-full w-full h-full object-contain bg-black"
+          >
+            您的浏览器不支持视频播放
+          </video>
+        ) : asset.kind === 'audio' ? (
+          <div className="w-full max-w-xl px-6 py-8 space-y-4">
+            <FileKindIcon kind={asset.kind} />
+            <audio key={mediaUrl} src={mediaUrl} controls preload="metadata" className="w-full">
+              您的浏览器不支持音频播放
+            </audio>
+          </div>
+        ) : thumbnailUrl ? (
+          <img src={thumbnailUrl} alt={asset.fileName} className="max-w-full max-h-full object-contain" />
+        ) : (
+          <MediaPlaceholder asset={asset} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MediaPlaceholder({ asset }: { asset: Asset }): React.JSX.Element {
+  return (
+    <div className="flex flex-col items-center gap-2 text-muted-foreground">
+      <FileKindIcon kind={asset.kind} />
+      <span>{asset.extension.replace('.', '').toUpperCase() || '无预览'}</span>
     </div>
   );
 }
@@ -335,7 +449,7 @@ function InfoRow({
 
 async function handleRevealInFolder(
   assetId: string,
-  setActionBusy: (value: 'reveal' | 'reanalyze' | null) => void
+  setActionBusy: (value: 'reveal' | 'reanalyze' | 'precision' | null) => void
 ): Promise<void> {
   setActionBusy('reveal');
   try {
@@ -351,13 +465,32 @@ async function handleRevealInFolder(
 async function handleReanalyze(
   assetId: string,
   setDetail: React.Dispatch<React.SetStateAction<AssetDetailResponse | null>>,
-  setActionBusy: (value: 'reveal' | 'reanalyze' | null) => void
+  setActionBusy: (value: 'reveal' | 'reanalyze' | 'precision' | null) => void
 ): Promise<void> {
   setActionBusy('reanalyze');
   try {
     const refreshed = await reanalyzeAsset(assetId);
     setDetail(refreshed);
     toast.success('已重新加入解析队列');
+  } catch (error) {
+    toast.error(readErrorMessage(error));
+  } finally {
+    setActionBusy(null);
+  }
+}
+
+async function handlePrecisionAnalyze(
+  assetId: string,
+  setDetail: React.Dispatch<React.SetStateAction<AssetDetailResponse | null>>,
+  setActionBusy: (value: 'reveal' | 'reanalyze' | 'precision' | null) => void,
+  setPrecisionConfirmOpen: (open: boolean) => void
+): Promise<void> {
+  setPrecisionConfirmOpen(false);
+  setActionBusy('precision');
+  try {
+    const refreshed = await precisionAnalyzeAsset(assetId);
+    setDetail(refreshed);
+    toast.success('已开启精查模式并加入解析队列');
   } catch (error) {
     toast.error(readErrorMessage(error));
   } finally {
