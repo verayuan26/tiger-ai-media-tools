@@ -107,9 +107,31 @@ AI_MEDIA_DATA_DIR=.data/e2e AI_PROVIDER=mock AI_MEDIA_ENABLE_DEV_ROUTES=1 npm ru
 npm run typecheck
 npm test
 npm run build
-npm run check:delivery
 npm run test:e2e
 git diff --check
+```
+
+## Contributing（Git 交付规范）
+
+每个 Paperclip 子任务或阶段完成时，代码必须已提交并推送到远程，再标记 issue 为 `done`。避免「仅本地存在、Board 拉不到」的交付断层（参见 [EGO-6](/EGO/issues/EGO-6) 复盘）。
+
+1. **阶段完成即 push**：子任务/阶段验收通过后，执行 `git commit` 与 `git push`，再将 issue 标为 `done`。
+2. **提交信息含 issue 编号**：首行必须包含 identifier，例如 `EGO-22: add delivery check script`。
+3. **禁止虚假完成**：`git status` 非 clean、或有未 push 提交时，不得将父 epic 或子任务标为 `done`。
+4. **前端变更先 build**：改动 `src/client` 时，commit 前运行 `npm run build`（或确保 CI build 通过），因为 `npm run dev` 托管的是 `dist/client` 生产构建。
+
+交付前自检（可选）：
+
+```bash
+npm run check:delivery -- before-done --issue EGO-22
+npm run check:delivery -- commit-msg "EGO-22: your summary"
+npm run check:delivery -- pre-push
+```
+
+安装 pre-push 提醒（可选，不阻断 push）：
+
+```bash
+npm run git:install-hooks
 ```
 
 ## 数据安全和隐私
