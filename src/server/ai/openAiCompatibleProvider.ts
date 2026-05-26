@@ -17,9 +17,35 @@ const REQUIRED_CONFIG: Array<[keyof OpenAiCompatibleProviderConfig, string]> = [
   ['transcribeModel', 'AI_OPENAI_TRANSCRIBE_MODEL']
 ];
 
+const VISION_TAG_PROMPT =
+  'Analyze this garment/media image. Return JSON only with shape {"tags":[{"displayName":string,"confidence":number}]} and no markdown. Every displayName MUST be in simplified Chinese (简体中文). Use concise Chinese tags for visible objects, scenes, and actions.';
+
+/** Ensures OpenAI-compatible routes resolve under `/v1` (e.g. `/v1/audio/transcriptions`). */
+export function normalizeOpenAiCompatibleBaseUrl(baseUrl: string): string {
+  const trimmed = baseUrl.trim().replace(/\/+$/, '');
+  if (trimmed.length === 0) {
+    return trimmed;
+  }
+
+  return /\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/v1`;
+}
+
+export async function pingOpenAiCompatibleProvider(config: OpenAiCompatibleProviderConfig): Promise<void> {
+  validateConfig(config);
+  const baseUrl = normalizeOpenAiCompatibleBaseUrl(config.baseUrl);
+  const response = await fetch(`${baseUrl}/models`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`
+    }
+  });
+
+  assertOkResponse(response, 'OpenAI-compatible connectivity check failed');
+}
+
 export function createOpenAiCompatibleProvider(config: OpenAiCompatibleProviderConfig): AiProvider {
   validateConfig(config);
-  const baseUrl = config.baseUrl.replace(/\/+$/, '');
+  const baseUrl = normalizeOpenAiCompatibleBaseUrl(config.baseUrl);
 
   return {
     async analyzeImage({ imagePath }) {
@@ -39,7 +65,7 @@ export function createOpenAiCompatibleProvider(config: OpenAiCompatibleProviderC
               content: [
                 {
                   type: 'text',
-                  text: 'Analyze this garment/media image. Return JSON only with shape {"tags":[{"displayName":string,"confidence":number}]} and no markdown.'
+                  text: VISION_TAG_PROMPT
                 },
                 {
                   type: 'image_url',
@@ -71,7 +97,8 @@ export function createOpenAiCompatibleProvider(config: OpenAiCompatibleProviderC
       formData.set('model', config.transcribeModel);
       formData.set('file', new Blob([audio], { type: mimeType }), fileName);
 
-      const response = await fetch(`${baseUrl}/audio/transcriptions`, {
+      const transcriptionUrl = `${baseUrl}/audio/transcriptions`;
+      const response = await fetch(transcriptionUrl, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${config.apiKey}`
@@ -79,7 +106,7 @@ export function createOpenAiCompatibleProvider(config: OpenAiCompatibleProviderC
         body: formData
       });
 
-      assertOkResponse(response, 'OpenAI-compatible audio transcription request failed');
+      assertOkResponse(response, `OpenAI-compatible audio transcription request failed (POST ${transcriptionUrl})`);
       const body = (await response.json()) as TranscriptionResponse;
       return {
         segments: [
