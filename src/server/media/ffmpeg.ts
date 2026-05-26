@@ -98,6 +98,43 @@ export async function probeMedia(filePath: string): Promise<MediaMetadata> {
   };
 }
 
+export function transcriptionAudioPath(dataDir: string, assetId: string): string {
+  return path.join(dataDir, 'audio', `${safeFrameFileStem(assetId)}.wav`);
+}
+
+export function resolveTranscriptionAudioPath(
+  asset: { id: string; kind: 'image' | 'video' | 'audio'; path: string },
+  dataDir: string
+): string {
+  if (asset.kind === 'video') {
+    return transcriptionAudioPath(dataDir, asset.id);
+  }
+
+  return asset.path;
+}
+
+export async function extractAudioTrack(input: {
+  filePath: string;
+  outputPath: string;
+}): Promise<string> {
+  await mkdir(path.dirname(input.outputPath), { recursive: true });
+  await execa('ffmpeg', [
+    '-y',
+    '-i',
+    input.filePath,
+    '-vn',
+    '-acodec',
+    'pcm_s16le',
+    '-ar',
+    '16000',
+    '-ac',
+    '1',
+    input.outputPath
+  ]);
+
+  return input.outputPath;
+}
+
 export async function extractVideoFrames(input: {
   filePath: string;
   assetId: string;

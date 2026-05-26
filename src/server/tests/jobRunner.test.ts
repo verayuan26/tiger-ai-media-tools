@@ -11,15 +11,26 @@ import type { AnalysisContext } from '../jobs/analysisPipeline';
 import type { JobStage, MediaKind } from '../../shared/types';
 
 const mediaMock = vi.hoisted(() => ({
+  extractAudioTrack: vi.fn(async ({ outputPath }: { outputPath: string }) => outputPath),
   extractVideoFrames: vi.fn(),
   probeMedia: vi.fn()
 }));
 
-vi.mock('../media/ffmpeg', () => mediaMock);
+vi.mock('../media/ffmpeg', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../media/ffmpeg')>();
+  return {
+    ...actual,
+    extractAudioTrack: mediaMock.extractAudioTrack,
+    extractVideoFrames: mediaMock.extractVideoFrames,
+    probeMedia: mediaMock.probeMedia
+  };
+});
 
 let tempDir: string | null = null;
 
 beforeEach(() => {
+  mediaMock.extractAudioTrack.mockReset();
+  mediaMock.extractAudioTrack.mockImplementation(async ({ outputPath }: { outputPath: string }) => outputPath);
   mediaMock.extractVideoFrames.mockReset();
   mediaMock.probeMedia.mockReset();
 });
@@ -232,6 +243,11 @@ describe('job runner', () => {
       await expect(drainQueue(context, 10)).resolves.toBe(6);
 
       expect(calls).toEqual(['metadata', 'frames', 'ai_vision', 'ai_vision', 'ai_transcript']);
+      expect(mediaMock.extractAudioTrack).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filePath: '/tmp/factory/factory-tour.mp4'
+        })
+      );
       expect(mediaMock.extractVideoFrames).toHaveBeenCalledWith(
         expect.objectContaining({
           assetId: asset.id,

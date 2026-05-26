@@ -1,7 +1,13 @@
 import path from 'node:path';
 import type { AiProvider } from '../ai/provider';
 import type { createRepositories } from '../db/repositories';
-import { extractVideoFrames, probeMedia } from '../media/ffmpeg';
+import {
+  extractAudioTrack,
+  extractVideoFrames,
+  probeMedia,
+  resolveTranscriptionAudioPath,
+  transcriptionAudioPath
+} from '../media/ffmpeg';
 import type { AnalysisJob, JobStage } from '../../shared/types';
 import type { DrainBlockedInfo } from '../../shared/settings';
 
@@ -49,15 +55,16 @@ export async function processAnalysisJob(
         return { status: 'skipped' };
       }
 
+      const frameMode = asset.frameMode === 'precision' ? 'precision' : context.frameMode;
       const frames = await extractVideoFrames({
         filePath: asset.path,
         assetId: asset.id,
         durationSeconds: asset.durationSeconds ?? 0,
         outputDir: path.join(context.dataDir, 'frames', asset.id),
-        mode: context.frameMode,
+        mode: frameMode,
         sourceWidth: asset.width
       });
-      const strategy = context.frameMode === 'precision' ? 'precision' : 'interval';
+      const strategy = frameMode === 'precision' ? 'precision' : 'interval';
       context.repos.frames.replaceFrames(
         asset.id,
         frames.map((frame) => ({
@@ -82,6 +89,13 @@ export async function processAnalysisJob(
     }
 
     case 'audio': {
+      if (asset.kind === 'video') {
+        await extractAudioTrack({
+          filePath: asset.path,
+          outputPath: transcriptionAudioPath(context.dataDir, asset.id)
+        });
+      }
+
       context.repos.assets.setMetadata(asset.id, { status: 'partial' });
       return { status: 'done' };
     }
@@ -107,7 +121,12 @@ export async function processAnalysisJob(
     }
 
     case 'ai_transcript': {
-      const result = await context.aiProvider.transcribeAudio({ audioPath: asset.path });
+      if (asset.kind === 'image') {
+        return { status: 'skipped' };
+      }
+
+      const audioPath = resolveTranscriptionAudioPath(asset, context.dataDir);
+      const result = await context.aiProvider.transcribeAudio({ audioPath });
       context.repos.transcripts.replaceSegments(asset.id, result.segments);
       context.repos.assets.setMetadata(asset.id, { status: 'partial' });
       return { status: 'done' };

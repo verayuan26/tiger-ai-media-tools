@@ -3,8 +3,21 @@ import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMockAiProvider } from '../ai/mockProvider';
-import { createOpenAiCompatibleProvider } from '../ai/openAiCompatibleProvider';
-import { extractVideoFrames, buildFfmpegFrameArgs, buildFrameScaleFilter, parseFfprobeDuration, probeMedia, safeFrameFileStem } from '../media/ffmpeg';
+import {
+  createOpenAiCompatibleProvider,
+  normalizeOpenAiCompatibleBaseUrl
+} from '../ai/openAiCompatibleProvider';
+import {
+  buildFfmpegFrameArgs,
+  buildFrameScaleFilter,
+  extractAudioTrack,
+  extractVideoFrames,
+  parseFfprobeDuration,
+  probeMedia,
+  resolveTranscriptionAudioPath,
+  safeFrameFileStem,
+  transcriptionAudioPath
+} from '../media/ffmpeg';
 import { planFrameTimestamps } from '../media/framePlan';
 
 const execaMock = vi.hoisted(() => vi.fn());
@@ -135,6 +148,72 @@ describe('probeMedia', () => {
       width: 640,
       height: 360
     });
+  });
+});
+
+describe('normalizeOpenAiCompatibleBaseUrl', () => {
+  it('appends /v1 when the endpoint omits the version segment', () => {
+    expect(normalizeOpenAiCompatibleBaseUrl('https://api.openai.com')).toBe('https://api.openai.com/v1');
+    expect(normalizeOpenAiCompatibleBaseUrl('https://api.openai.com/')).toBe('https://api.openai.com/v1');
+  });
+
+  it('keeps endpoints that already end with /v1', () => {
+    expect(normalizeOpenAiCompatibleBaseUrl('https://example.com/v1')).toBe('https://example.com/v1');
+    expect(normalizeOpenAiCompatibleBaseUrl('https://openrouter.ai/api/v1')).toBe('https://openrouter.ai/api/v1');
+  });
+});
+
+describe('transcription audio paths', () => {
+  it('stores extracted audio under the data directory for videos', () => {
+    const outputPath = transcriptionAudioPath('/data', '../clip/id');
+    expect(outputPath).toBe(path.join('/data', 'audio', 'clip-id.wav'));
+    expect(path.relative('/data', outputPath).startsWith('..')).toBe(false);
+  });
+
+  it('uses the original asset path for audio files', () => {
+    expect(
+      resolveTranscriptionAudioPath(
+        { id: 'a1', kind: 'audio', path: '/library/talk.wav' },
+        '/data'
+      )
+    ).toBe('/library/talk.wav');
+  });
+
+  it('uses the extracted wav path for videos', () => {
+    expect(
+      resolveTranscriptionAudioPath(
+        { id: 'v1', kind: 'video', path: '/library/clip.mp4' },
+        '/data'
+      )
+    ).toBe(path.join('/data', 'audio', 'v1.wav'));
+  });
+});
+
+describe('extractAudioTrack', () => {
+  it('invokes ffmpeg to extract a mono wav track for transcription', async () => {
+    execaMock.mockResolvedValue({ stdout: '' });
+    const outputDir = await mkdtemp(path.join(os.tmpdir(), 'ai-media-audio-'));
+
+    try {
+      const outputPath = path.join(outputDir, 'clip.wav');
+      await extractAudioTrack({ filePath: '/input/video.mp4', outputPath });
+
+      expect(execaMock).toHaveBeenCalledWith('ffmpeg', [
+        '-y',
+        '-i',
+        '/input/video.mp4',
+        '-vn',
+        '-acodec',
+        'pcm_s16le',
+        '-ar',
+        '16000',
+        '-ac',
+        '1',
+        outputPath
+      ]);
+    } finally {
+      await rm(outputDir, { force: true, recursive: true });
+    }
   });
 });
 
@@ -469,6 +548,35 @@ describe('createOpenAiCompatibleProvider', () => {
 
       await expect(provider.transcribeAudio({ audioPath })).rejects.toThrow(/429/);
       expect(json).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      await rm(path.dirname(audioPath), { force: true, recursive: true });
+    }
+  });
+
+  it('normalizes base URLs without /v1 before calling audio transcriptions', async () => {
+    const audioPath = path.join(await mkdtemp(path.join(os.tmpdir(), 'ai-provider-')), 'audio.wav');
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ text: '你好', language: 'zh' })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await writeFile(audioPath, 'fake audio');
+      const provider = createOpenAiCompatibleProvider({
+        baseUrl: 'https://example.test',
+        apiKey: 'test-key',
+        visionModel: 'vision-model',
+        transcribeModel: 'transcribe-model'
+      });
+
+      await provider.transcribeAudio({ audioPath });
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://example.test/v1/audio/transcriptions',
+        expect.objectContaining({ method: 'POST' })
+      );
     } finally {
       vi.unstubAllGlobals();
       await rm(path.dirname(audioPath), { force: true, recursive: true });
