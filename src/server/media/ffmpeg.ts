@@ -14,6 +14,49 @@ export interface ExtractedFrame {
   thumbnailPath: string;
 }
 
+/** Minimum output width when downscaling extracted frames. */
+export const MIN_FRAME_WIDTH = 720;
+
+/** Maximum output width before downscaling very large sources. */
+export const MAX_FRAME_WIDTH = 1920;
+
+/** JPEG quality for extracted frames (`-q:v 2` ≈ high quality). */
+export const FRAME_JPEG_QUALITY = '2';
+
+export function buildFrameScaleFilter(sourceWidth: number | null | undefined): string | null {
+  if (!sourceWidth || sourceWidth <= 0 || sourceWidth <= MAX_FRAME_WIDTH) {
+    return null;
+  }
+
+  const targetWidth = Math.max(MIN_FRAME_WIDTH, MAX_FRAME_WIDTH);
+  return `scale=${targetWidth}:-2`;
+}
+
+export function buildFfmpegFrameArgs(input: {
+  timestampSeconds: number;
+  filePath: string;
+  outputPath: string;
+  sourceWidth?: number | null;
+}): string[] {
+  const args = [
+    '-y',
+    '-ss',
+    String(input.timestampSeconds),
+    '-i',
+    input.filePath,
+    '-frames:v',
+    '1'
+  ];
+
+  const scaleFilter = buildFrameScaleFilter(input.sourceWidth);
+  if (scaleFilter) {
+    args.push('-vf', scaleFilter);
+  }
+
+  args.push('-q:v', FRAME_JPEG_QUALITY, input.outputPath);
+  return args;
+}
+
 export function parseFfprobeDuration(duration: string | undefined): number | null {
   if (!duration) {
     return null;
@@ -61,6 +104,7 @@ export async function extractVideoFrames(input: {
   durationSeconds: number;
   outputDir: string;
   mode: 'balanced' | 'precision';
+  sourceWidth?: number | null;
 }): Promise<ExtractedFrame[]> {
   await mkdir(input.outputDir, { recursive: true });
   const timestamps = planFrameTimestamps({
@@ -73,18 +117,15 @@ export async function extractVideoFrames(input: {
   const fileStem = safeFrameFileStem(input.assetId);
   for (const timestamp of timestamps) {
     const outputPath = path.join(input.outputDir, `${fileStem}-${timestamp}.jpg`);
-    await execa('ffmpeg', [
-      '-y',
-      '-ss',
-      String(timestamp),
-      '-i',
-      input.filePath,
-      '-frames:v',
-      '1',
-      '-vf',
-      'scale=480:-1',
-      outputPath
-    ]);
+    await execa(
+      'ffmpeg',
+      buildFfmpegFrameArgs({
+        timestampSeconds: timestamp,
+        filePath: input.filePath,
+        outputPath,
+        sourceWidth: input.sourceWidth
+      })
+    );
     frames.push({ timestampSeconds: timestamp, thumbnailPath: outputPath });
   }
 

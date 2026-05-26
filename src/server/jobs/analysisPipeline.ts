@@ -3,12 +3,16 @@ import type { AiProvider } from '../ai/provider';
 import type { createRepositories } from '../db/repositories';
 import { extractVideoFrames, probeMedia } from '../media/ffmpeg';
 import type { AnalysisJob, JobStage } from '../../shared/types';
+import type { DrainBlockedInfo } from '../../shared/settings';
 
 export interface AnalysisContext {
   repos: ReturnType<typeof createRepositories>;
   aiProvider: AiProvider;
   dataDir: string;
   frameMode: 'balanced' | 'precision';
+  checkDrainLimits?: (processingCount: number) => DrainBlockedInfo | null;
+  checkJobBudget?: (job: AnalysisJob) => DrainBlockedInfo | null;
+  onAiJobCompleted?: (job: AnalysisJob) => void;
 }
 
 export interface AnalysisJobResult {
@@ -50,7 +54,8 @@ export async function processAnalysisJob(
         assetId: asset.id,
         durationSeconds: asset.durationSeconds ?? 0,
         outputDir: path.join(context.dataDir, 'frames', asset.id),
-        mode: context.frameMode
+        mode: context.frameMode,
+        sourceWidth: asset.width
       });
       const strategy = context.frameMode === 'precision' ? 'precision' : 'interval';
       context.repos.frames.replaceFrames(

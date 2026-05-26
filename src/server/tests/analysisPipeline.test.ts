@@ -4,7 +4,7 @@ import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMockAiProvider } from '../ai/mockProvider';
 import { createOpenAiCompatibleProvider } from '../ai/openAiCompatibleProvider';
-import { extractVideoFrames, parseFfprobeDuration, probeMedia, safeFrameFileStem } from '../media/ffmpeg';
+import { extractVideoFrames, buildFfmpegFrameArgs, buildFrameScaleFilter, parseFfprobeDuration, probeMedia, safeFrameFileStem } from '../media/ffmpeg';
 import { planFrameTimestamps } from '../media/framePlan';
 
 const execaMock = vi.hoisted(() => vi.fn());
@@ -138,6 +138,59 @@ describe('probeMedia', () => {
   });
 });
 
+describe('buildFrameScaleFilter', () => {
+  it('preserves source resolution for typical widths up to 1920px', () => {
+    expect(buildFrameScaleFilter(null)).toBeNull();
+    expect(buildFrameScaleFilter(undefined)).toBeNull();
+    expect(buildFrameScaleFilter(0)).toBeNull();
+    expect(buildFrameScaleFilter(480)).toBeNull();
+    expect(buildFrameScaleFilter(1280)).toBeNull();
+    expect(buildFrameScaleFilter(1920)).toBeNull();
+  });
+
+  it('downscales very large sources without going below 720px width', () => {
+    expect(buildFrameScaleFilter(3840)).toBe('scale=1920:-2');
+    expect(buildFrameScaleFilter(2560)).toBe('scale=1920:-2');
+  });
+});
+
+describe('buildFfmpegFrameArgs', () => {
+  it('omits scale filter for normal widths and uses high JPEG quality', () => {
+    expect(
+      buildFfmpegFrameArgs({
+        timestampSeconds: 3,
+        filePath: '/input/video.mp4',
+        outputPath: '/output/frame-3.jpg',
+        sourceWidth: 1280
+      })
+    ).toEqual(['-y', '-ss', '3', '-i', '/input/video.mp4', '-frames:v', '1', '-q:v', '2', '/output/frame-3.jpg']);
+  });
+
+  it('adds scale filter only when source width exceeds the cap', () => {
+    expect(
+      buildFfmpegFrameArgs({
+        timestampSeconds: 0,
+        filePath: '/input/video.mp4',
+        outputPath: '/output/frame-0.jpg',
+        sourceWidth: 3840
+      })
+    ).toEqual([
+      '-y',
+      '-ss',
+      '0',
+      '-i',
+      '/input/video.mp4',
+      '-frames:v',
+      '1',
+      '-vf',
+      'scale=1920:-2',
+      '-q:v',
+      '2',
+      '/output/frame-0.jpg'
+    ]);
+  });
+});
+
 describe('extractVideoFrames', () => {
   it('invokes ffmpeg once per planned timestamp and returns sanitized output frame records', async () => {
     execaMock.mockResolvedValue({ stdout: '' });
@@ -172,8 +225,8 @@ describe('extractVideoFrames', () => {
         '/input/video.mp4',
         '-frames:v',
         '1',
-        '-vf',
-        'scale=480:-1',
+        '-q:v',
+        '2',
         path.join(outputDir, 'foo-bar-0.jpg')
       ]);
       expect(execaMock).toHaveBeenNthCalledWith(2, 'ffmpeg', [
@@ -184,8 +237,8 @@ describe('extractVideoFrames', () => {
         '/input/video.mp4',
         '-frames:v',
         '1',
-        '-vf',
-        'scale=480:-1',
+        '-q:v',
+        '2',
         path.join(outputDir, 'foo-bar-3.jpg')
       ]);
       expect(execaMock).toHaveBeenNthCalledWith(3, 'ffmpeg', [
@@ -196,8 +249,8 @@ describe('extractVideoFrames', () => {
         '/input/video.mp4',
         '-frames:v',
         '1',
-        '-vf',
-        'scale=480:-1',
+        '-q:v',
+        '2',
         path.join(outputDir, 'foo-bar-6.jpg')
       ]);
     } finally {
@@ -318,6 +371,77 @@ describe('createOpenAiCompatibleProvider', () => {
 
       await expect(provider.analyzeImage({ imagePath })).rejects.toThrow(/503/);
       expect(json).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      await rm(path.dirname(imagePath), { force: true, recursive: true });
+    }
+  });
+
+  it('requests vision analysis with simplified-Chinese tag prompt', async () => {
+    const imagePath = path.join(await mkdtemp(path.join(os.tmpdir(), 'ai-provider-')), 'frame.jpg');
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '{"tags":[{"displayName":"牛仔布","confidence":0.9}]}' } }]
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await writeFile(imagePath, 'fake image');
+      const provider = createOpenAiCompatibleProvider({
+        baseUrl: 'https://example.test/v1',
+        apiKey: 'test-key',
+        visionModel: 'vision-model',
+        transcribeModel: 'transcribe-model'
+      });
+
+      await provider.analyzeImage({ imagePath });
+
+      const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+        messages?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+      };
+      const promptText = requestBody.messages?.[0]?.content?.find((part) => part.type === 'text')?.text ?? '';
+      expect(promptText).toMatch(/简体中文/);
+      expect(promptText).toMatch(/displayName/i);
+    } finally {
+      vi.unstubAllGlobals();
+      await rm(path.dirname(imagePath), { force: true, recursive: true });
+    }
+  });
+
+  it('parses Chinese tag displayName from vision response', async () => {
+    const imagePath = path.join(await mkdtemp(path.join(os.tmpdir(), 'ai-provider-')), 'frame.jpg');
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content:
+                '{"tags":[{"displayName":"裁剪布料","confidence":0.88},{"displayName":"缝纫机","confidence":0.76}]}'
+            }
+          }
+        ]
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await writeFile(imagePath, 'fake image');
+      const provider = createOpenAiCompatibleProvider({
+        baseUrl: 'https://example.test/v1',
+        apiKey: 'test-key',
+        visionModel: 'vision-model',
+        transcribeModel: 'transcribe-model'
+      });
+
+      await expect(provider.analyzeImage({ imagePath })).resolves.toEqual({
+        tags: [
+          { displayName: '裁剪布料', confidence: 0.88 },
+          { displayName: '缝纫机', confidence: 0.76 }
+        ]
+      });
     } finally {
       vi.unstubAllGlobals();
       await rm(path.dirname(imagePath), { force: true, recursive: true });
