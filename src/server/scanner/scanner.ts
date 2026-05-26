@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { opendir, stat } from 'node:fs/promises';
 import path from 'node:path';
-import type { JobStage } from '../../shared/types';
 import type { createRepositories } from '../db/repositories';
+import { stagesForKind } from '../jobs/stagesForKind';
 import { classifyMediaFile } from './fileTypes';
 
 type Repositories = ReturnType<typeof createRepositories>;
@@ -41,12 +41,6 @@ async function* walkFiles(rootPath: string): AsyncGenerator<string> {
       yield fullPath;
     }
   }
-}
-
-function stagesForKind(kind: 'image' | 'video' | 'audio'): JobStage[] {
-  if (kind === 'video') return ['metadata', 'thumbnail', 'frames', 'audio', 'ai_vision', 'ai_transcript'];
-  if (kind === 'image') return ['metadata', 'thumbnail', 'ai_vision'];
-  return ['metadata'];
 }
 
 export async function importSourceDirectory(

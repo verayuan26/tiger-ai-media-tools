@@ -6,6 +6,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { z } from 'zod';
 import type { createRepositories } from '../db/repositories';
 import type { AiProvider } from '../ai/provider';
+import { revealInFileManager } from '../media/revealInFileManager';
 import { importSourceDirectory } from '../scanner/scanner';
 import { drainQueue } from '../jobs/jobRunner';
 
@@ -188,6 +189,39 @@ export function createApiRouter(context: ApiRouteContext): Router {
       jobs: context.repos.jobs.listForAsset(asset.id)
     });
   });
+
+  router.post(
+    '/assets/:id/reveal',
+    asyncHandler(async (req, res, next) => {
+      const asset = context.repos.assets.getById(req.params.id);
+      if (!asset) {
+        next(new HttpError(404, 'Asset not found'));
+        return;
+      }
+
+      try {
+        await revealInFileManager(asset.path);
+      } catch {
+        next(new HttpError(404, 'Asset file not found on disk'));
+        return;
+      }
+
+      res.json({ ok: true });
+    })
+  );
+
+  router.post(
+    '/assets/:id/reanalyze',
+    asyncHandler(async (req, res, next) => {
+      const asset = context.repos.assets.reanalyzeAsset(req.params.id);
+      if (!asset) {
+        next(new HttpError(404, 'Asset not found'));
+        return;
+      }
+
+      res.json({ ok: true, asset, jobs: context.repos.jobs.listForAsset(asset.id) });
+    })
+  );
 
   router.get(
     '/assets/:id/preview',

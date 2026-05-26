@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Express } from 'express';
 import request from 'supertest';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as revealModule from '../media/revealInFileManager';
 import { makeFixtures } from '../../../scripts/make-fixtures';
 import { createApp } from '../app';
 import type { LibraryDatabase } from '../db/connection';
@@ -388,6 +389,45 @@ describe('local API server', () => {
 
     const jobsResponse = await request(app).get('/api/jobs').expect(200);
     expect(Array.isArray(jobsResponse.body.jobs)).toBe(true);
+  });
+
+  it('reveals and reanalyzes assets', async () => {
+    const { dataDir, sourceDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    await request(app).post('/api/sources/import').send({ rootPath: sourceDir, name: 'Factory' }).expect(200);
+    await request(app).post('/api/jobs/drain').send({ limit: 5 }).expect(200);
+
+    const assetsResponse = await request(app).get('/api/assets').expect(200);
+    const assetId = assetsResponse.body.assets[0].id as string;
+
+    const beforeDetail = await request(app).get(`/api/assets/${assetId}`).expect(200);
+    expect(beforeDetail.body.tags.length).toBeGreaterThan(0);
+    expect(beforeDetail.body.jobs.every((job: { status: string }) => job.status === 'done')).toBe(true);
+
+    const revealSpy = vi.spyOn(revealModule, 'revealInFileManager').mockResolvedValue();
+    await request(app).post(`/api/assets/${assetId}/reveal`).expect(200, { ok: true });
+    expect(revealSpy).toHaveBeenCalledWith(expect.stringContaining('factory_cutting.jpg'));
+    revealSpy.mockRestore();
+
+    const reanalyzeResponse = await request(app).post(`/api/assets/${assetId}/reanalyze`).expect(200);
+    expect(reanalyzeResponse.body.ok).toBe(true);
+    expect(reanalyzeResponse.body.jobs).toHaveLength(3);
+    expect(reanalyzeResponse.body.jobs.every((job: { status: string }) => job.status === 'pending')).toBe(true);
+
+    const afterDetail = await request(app).get(`/api/assets/${assetId}`).expect(200);
+    expect(afterDetail.body.tags).toEqual([]);
+    expect(afterDetail.body.frames).toEqual([]);
+    expect(afterDetail.body.transcripts).toEqual([]);
+    expect(afterDetail.body.jobs.every((job: { status: string }) => job.status === 'pending')).toBe(true);
+  });
+
+  it('returns 404 for missing asset reveal and reanalyze routes', async () => {
+    const { dataDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    await request(app).post('/api/assets/missing-asset/reveal').expect(404);
+    await request(app).post('/api/assets/missing-asset/reanalyze').expect(404);
   });
 
   it('returns 413 JSON error for oversized JSON bodies', async () => {

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { stagesForKind } from '../jobs/stagesForKind';
 import type { LibraryDatabase } from './connection';
 import type {
   AnalysisJob,
@@ -334,6 +335,21 @@ export function createRepositories(db: LibraryDatabase) {
       });
 
       return refresh();
+    },
+
+    reanalyzeAsset(id: string): Asset | null {
+      const existing = assets.getById(id);
+      if (!existing) return null;
+
+      const stages = stagesForKind(existing.kind);
+      const reanalyze = db.transaction(() => {
+        assets.clearDerivedData(id);
+        tags.clearGeneratedForAsset(id);
+        jobs.resetJobs(id, stages);
+      });
+
+      reanalyze();
+      return assets.getById(id);
     },
 
     setMetadata(id: string, metadata: MetadataInput): void {

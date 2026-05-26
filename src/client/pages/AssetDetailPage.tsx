@@ -13,7 +13,13 @@ import {
   RefreshCw,
   Zap
 } from 'lucide-react';
-import { ApiError, getAssetDetail, type AssetDetailResponse } from '../api';
+import {
+  ApiError,
+  getAssetDetail,
+  reanalyzeAsset,
+  revealAssetInFileManager,
+  type AssetDetailResponse
+} from '../api';
 import { getAssetThumbnailUrl, getGeneratedFrameThumbnailUrl } from '../lib/media-url';
 import type { Asset, MediaKind } from '../../shared/types';
 import { Badge } from '../components/ui/badge';
@@ -28,6 +34,7 @@ export function AssetDetailPage(): React.JSX.Element {
   const navigate = useNavigate();
   const [detail, setDetail] = useState<AssetDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [actionBusy, setActionBusy] = useState<'reveal' | 'reanalyze' | null>(null);
 
   useEffect(() => {
     if (!assetId) {
@@ -98,7 +105,7 @@ export function AssetDetailPage(): React.JSX.Element {
         </div>
       </div>
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0">
         <div className="max-w-6xl mx-auto p-6 space-y-6">
           <div className="rounded-lg overflow-hidden bg-gray-100">
             <div className="aspect-video flex items-center justify-center">
@@ -255,13 +262,25 @@ export function AssetDetailPage(): React.JSX.Element {
                   <Copy className="size-4 mr-2" />
                   复制路径
                 </Button>
-                <Button variant="outline" type="button" className="w-full justify-start" disabled>
-                  <FolderOpen className="size-4 mr-2" />
-                  在文件夹中显示
+                <Button
+                  variant="outline"
+                  type="button"
+                  className="w-full justify-start"
+                  disabled={actionBusy !== null}
+                  onClick={() => void handleRevealInFolder(asset.id, setActionBusy)}
+                >
+                  <FolderOpen className={`size-4 mr-2 ${actionBusy === 'reveal' ? 'animate-pulse' : ''}`} />
+                  {actionBusy === 'reveal' ? '正在打开…' : '在文件夹中显示'}
                 </Button>
-                <Button variant="outline" type="button" className="w-full justify-start" disabled>
-                  <RefreshCw className="size-4 mr-2" />
-                  重新解析
+                <Button
+                  variant="outline"
+                  type="button"
+                  className="w-full justify-start"
+                  disabled={actionBusy !== null}
+                  onClick={() => void handleReanalyze(asset.id, setDetail, setActionBusy)}
+                >
+                  <RefreshCw className={`size-4 mr-2 ${actionBusy === 'reanalyze' ? 'animate-spin' : ''}`} />
+                  {actionBusy === 'reanalyze' ? '重新解析中…' : '重新解析'}
                 </Button>
                 <Separator />
                 <Button
@@ -312,6 +331,38 @@ function InfoRow({
       <span className="text-gray-900">{value}</span>
     </div>
   );
+}
+
+async function handleRevealInFolder(
+  assetId: string,
+  setActionBusy: (value: 'reveal' | 'reanalyze' | null) => void
+): Promise<void> {
+  setActionBusy('reveal');
+  try {
+    await revealAssetInFileManager(assetId);
+    toast.success('已在文件管理器中显示');
+  } catch (error) {
+    toast.error(readErrorMessage(error));
+  } finally {
+    setActionBusy(null);
+  }
+}
+
+async function handleReanalyze(
+  assetId: string,
+  setDetail: React.Dispatch<React.SetStateAction<AssetDetailResponse | null>>,
+  setActionBusy: (value: 'reveal' | 'reanalyze' | null) => void
+): Promise<void> {
+  setActionBusy('reanalyze');
+  try {
+    const refreshed = await reanalyzeAsset(assetId);
+    setDetail(refreshed);
+    toast.success('已重新加入解析队列');
+  } catch (error) {
+    toast.error(readErrorMessage(error));
+  } finally {
+    setActionBusy(null);
+  }
 }
 
 async function copyPath(path: string): Promise<void> {

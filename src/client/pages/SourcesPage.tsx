@@ -102,6 +102,24 @@ export function SourcesPage(): React.JSX.Element {
     }
   }
 
+  async function handleToggleIncrementalScan(
+    source: LibrarySourceStats,
+    incrementalScanEnabled: boolean
+  ): Promise<void> {
+    setBusySourceId(source.id);
+    try {
+      await updateSource(source.id, { incrementalScanEnabled });
+      setSources((current) =>
+        current.map((item) => (item.id === source.id ? { ...item, incrementalScanEnabled } : item))
+      );
+      toast.success(incrementalScanEnabled ? '已开启监听变化' : '已关闭监听变化');
+    } catch (error) {
+      toast.error(readErrorMessage(error));
+    } finally {
+      setBusySourceId(null);
+    }
+  }
+
   async function handleDelete(source: LibrarySourceStats): Promise<void> {
     if (!window.confirm(`确定删除来源「${source.name}」？关联素材将一并移除。`)) {
       return;
@@ -205,7 +223,13 @@ export function SourcesPage(): React.JSX.Element {
 
                         <div className="flex items-center gap-2">
                           <span className="text-sm text-gray-600">监听变化:</span>
-                          <Switch checked={source.incrementalScanEnabled} disabled />
+                          <Switch
+                            checked={source.incrementalScanEnabled}
+                            disabled={busy}
+                            onCheckedChange={(checked) =>
+                              void handleToggleIncrementalScan(source, checked)
+                            }
+                          />
                         </div>
                       </div>
 

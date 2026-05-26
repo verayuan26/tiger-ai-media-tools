@@ -103,6 +103,20 @@ export async function getAssetDetail(assetId: string): Promise<AssetDetailRespon
   return request<AssetDetailResponse>(`/api/assets/${encodeURIComponent(assetId)}`);
 }
 
+export async function revealAssetInFileManager(assetId: string): Promise<void> {
+  await request<{ ok: boolean }>(`/api/assets/${encodeURIComponent(assetId)}/reveal`, {
+    method: 'POST'
+  });
+}
+
+export async function reanalyzeAsset(assetId: string): Promise<AssetDetailResponse> {
+  await request<{ ok: boolean; asset: Asset; jobs: AnalysisJob[] }>(
+    `/api/assets/${encodeURIComponent(assetId)}/reanalyze`,
+    { method: 'POST' }
+  );
+  return getAssetDetail(assetId);
+}
+
 export async function getQueueSummary(): Promise<QueueSummary> {
   const response = await request<{ summary: QueueSummary }>('/api/queue');
   return response.summary;
