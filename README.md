@@ -34,6 +34,10 @@ npm run dev:client   # 终端 2：Vite 开发服务器，http://127.0.0.1:5173
 
 `dev:client` 通过 CORS 调用 `8787` 上的 API；改 UI 后无需重建 `dist/client`。
 
+## 贡献与 Git 工作流
+
+Paperclip 任务交付须**分阶段 commit + push**，提交信息含 issue ID（如 `EGO-8:`），且在标 `done` 前保证工作区已同步远程。详见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+
 ## 普通导入
 
 ### UI 方式
@@ -103,6 +107,7 @@ AI_MEDIA_DATA_DIR=.data/e2e AI_PROVIDER=mock AI_MEDIA_ENABLE_DEV_ROUTES=1 npm ru
 npm run typecheck
 npm test
 npm run build
+npm run check:delivery
 npm run test:e2e
 git diff --check
 ```
