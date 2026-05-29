@@ -7,7 +7,13 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { z } from 'zod';
 import type { createRepositories } from '../db/repositories';
 import type { AiProvider } from '../ai/provider';
+import {
+  DirectoryPickerCancelledError,
+  DirectoryPickerUnavailableError,
+  pickDirectory
+} from '../media/pickDirectory';
 import { revealInFileManager } from '../media/revealInFileManager';
+import { clearGeneratedCache, getGeneratedCacheStats } from '../media/cacheStorage';
 import { importSourceDirectory } from '../scanner/scanner';
 import { drainQueue } from '../jobs/jobRunner';
 import type { createSettingsService } from '../settings/settingsService';
@@ -43,9 +49,14 @@ const drainJobsSchema = z.object({
   limit: z.number().int().min(1).max(100).optional().default(25)
 });
 
-const retryFailedSchema = z.object({
-  assetId: z.string().trim().min(1).optional()
-});
+const retryFailedSchema = z
+  .object({
+    assetId: z.string().trim().min(1).optional(),
+    assetIds: z.array(z.string().trim().min(1)).min(1).max(100).optional()
+  })
+  .refine((input) => !(input.assetId && input.assetIds?.length), {
+    message: 'Use either assetId or assetIds, not both'
+  });
 
 const createTagSchema = z.object({
   displayName: z.string().trim().min(1),
@@ -58,6 +69,8 @@ const listJobsSchema = z.object({
 
 const aiProviderNameSchema = z.enum(['mock', 'openai-compatible']);
 const apiProtocolSchema = z.enum(['openai', 'anthropic', 'azure', 'custom']);
+const transcriptionModeSchema = z.enum(['cloud', 'fallback', 'auto']);
+const fallbackTranscribeProviderSchema = z.enum(['openai-compatible', 'dashscope-asr']);
 
 const patchSettingsSchema = z
   .object({
@@ -67,6 +80,11 @@ const patchSettingsSchema = z
     aiProviderName: aiProviderNameSchema.optional(),
     openAiVisionModel: z.string().trim().optional(),
     openAiTranscribeModel: z.string().trim().optional(),
+    transcriptionMode: transcriptionModeSchema.optional(),
+    fallbackTranscribeProvider: fallbackTranscribeProviderSchema.optional(),
+    fallbackTranscribeEndpoint: z.string().trim().optional(),
+    fallbackTranscribeModel: z.string().trim().optional(),
+    fallbackTranscribeApiKey: z.string().optional(),
     dailyBudgetYuan: z.number().int().min(10).max(500).optional(),
     concurrentTasks: z.number().int().min(1).max(10).optional(),
     precisionModeDefault: z.boolean().optional(),
@@ -91,6 +109,42 @@ export function createApiRouter(context: ApiRouteContext): Router {
   router.get('/health', (_req, res) => {
     res.json({ ok: true });
   });
+
+  router.post(
+    '/system/pick-directory',
+    asyncHandler(async (_req, res, next) => {
+      try {
+        const path = await pickDirectory();
+        res.json({ path });
+      } catch (error) {
+        if (error instanceof DirectoryPickerCancelledError) {
+          res.json({ cancelled: true });
+          return;
+        }
+        if (error instanceof DirectoryPickerUnavailableError) {
+          next(new HttpError(503, error.message));
+          return;
+        }
+        next(error);
+      }
+    })
+  );
+
+  router.get(
+    '/system/cache',
+    asyncHandler(async (_req, res) => {
+      const cache = await getGeneratedCacheStats(context.dataDir);
+      res.json({ cache });
+    })
+  );
+
+  router.post(
+    '/system/cache/clear',
+    asyncHandler(async (_req, res) => {
+      const cache = await clearGeneratedCache(context.dataDir);
+      res.json({ cache });
+    })
+  );
 
   router.get('/settings', (_req, res) => {
     res.json({ settings: context.settingsService.getSettings() });
@@ -382,6 +436,7 @@ export function createApiRouter(context: ApiRouteContext): Router {
     asyncHandler(async (req, res) => {
       const { limit } = drainJobsSchema.parse(req.body ?? {});
       const aiProvider = context.settingsService.resolveAiProvider();
+      const settings = context.settingsService.getSettings();
       const drainResult = await drainQueue(
         {
           repos: context.repos,
@@ -392,7 +447,7 @@ export function createApiRouter(context: ApiRouteContext): Router {
           checkJobBudget: (job) => context.settingsService.checkJobBudget(job),
           onAiJobCompleted: (job) => context.settingsService.recordAiJobSpend(job)
         },
-        { limit }
+        { limit, maxConcurrent: settings.concurrentTasks }
       );
 
       const payload =
@@ -414,8 +469,8 @@ export function createApiRouter(context: ApiRouteContext): Router {
   );
 
   router.post('/jobs/retry-failed', (req, res) => {
-    const { assetId } = retryFailedSchema.parse(req.body ?? {});
-    const changed = context.repos.jobs.retryFailed(assetId);
+    const { assetId, assetIds } = retryFailedSchema.parse(req.body ?? {});
+    const changed = context.repos.jobs.retryFailed(assetIds ?? assetId);
     res.json({ changed, summary: context.repos.jobs.summary() });
   });
 

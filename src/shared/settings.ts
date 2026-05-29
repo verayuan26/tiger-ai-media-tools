@@ -1,5 +1,7 @@
 export type AiProviderName = 'mock' | 'openai-compatible';
 export type ApiProtocol = 'openai' | 'anthropic' | 'azure' | 'custom';
+export type TranscriptionMode = 'cloud' | 'fallback' | 'auto';
+export type FallbackTranscribeProvider = 'openai-compatible' | 'dashscope-asr';
 
 export interface AppSettings {
   apiProtocol: ApiProtocol;
@@ -8,6 +10,11 @@ export interface AppSettings {
   aiProviderName: AiProviderName;
   openAiVisionModel: string;
   openAiTranscribeModel: string;
+  transcriptionMode: TranscriptionMode;
+  fallbackTranscribeProvider: FallbackTranscribeProvider;
+  fallbackTranscribeEndpoint: string;
+  fallbackTranscribeModel: string;
+  fallbackTranscribeApiKeyConfigured: boolean;
   dailyBudgetYuan: number;
   concurrentTasks: number;
   precisionModeDefault: boolean;
@@ -23,6 +30,11 @@ export interface AppSettingsPatch {
   aiProviderName?: AiProviderName;
   openAiVisionModel?: string;
   openAiTranscribeModel?: string;
+  transcriptionMode?: TranscriptionMode;
+  fallbackTranscribeProvider?: FallbackTranscribeProvider;
+  fallbackTranscribeEndpoint?: string;
+  fallbackTranscribeModel?: string;
+  fallbackTranscribeApiKey?: string;
   dailyBudgetYuan?: number;
   concurrentTasks?: number;
   precisionModeDefault?: boolean;

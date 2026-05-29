@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 8;
 
 export const CREATE_SCHEMA_SQL = `
 create table if not exists schema_migrations (
@@ -111,6 +111,13 @@ create table if not exists app_settings (
   ai_provider_name text not null default 'mock' check (ai_provider_name in ('mock', 'openai-compatible')),
   open_ai_vision_model text not null default '',
   open_ai_transcribe_model text not null default '',
+  transcription_mode text not null default 'auto' check (transcription_mode in ('cloud', 'fallback', 'auto')),
+  fallback_transcribe_provider text not null default 'dashscope-asr',
+  fallback_transcribe_endpoint text not null default '',
+  fallback_transcribe_model text not null default '',
+  fallback_transcribe_api_key text not null default '',
+  local_whisper_bin text not null default 'whisper-cli',
+  local_whisper_model text not null default '',
   daily_budget_yuan integer not null default 50,
   concurrent_tasks integer not null default 3,
   precision_mode_default integer not null default 0,

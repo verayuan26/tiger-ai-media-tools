@@ -4,6 +4,8 @@ import { processAnalysisJob, type AnalysisContext } from './analysisPipeline';
 
 export interface DrainQueueOptions {
   limit?: number;
+  /** Max jobs to run in parallel per drain batch; defaults to 1. */
+  maxConcurrent?: number;
   checkLimits?: (processingCount: number) => DrainBlockedInfo | null;
   checkJobBudget?: AnalysisContext['checkJobBudget'];
   onAiJobCompleted?: AnalysisContext['onAiJobCompleted'];
@@ -51,24 +53,59 @@ export async function drainQueue(
 ): Promise<number | DrainQueueResult> {
   const options = typeof limitOrOptions === 'number' ? { limit: limitOrOptions } : limitOrOptions;
   const limit = options.limit ?? 25;
+  const maxConcurrent = Math.max(1, options.maxConcurrent ?? 1);
   let processed = 0;
 
   while (processed < limit) {
-    try {
-      const didProcess = await processNextJob(context);
-      if (!didProcess) {
-        break;
+    const summary = context.repos.jobs.summary();
+    const blockedBeforeBatch = context.checkDrainLimits?.(summary.processing) ?? null;
+    if (blockedBeforeBatch) {
+      if (context.checkDrainLimits || context.checkJobBudget) {
+        return { processed, blocked: blockedBeforeBatch };
       }
-      processed += 1;
-    } catch (error) {
-      if (error instanceof DrainLimitError) {
-        if (context.checkDrainLimits || context.checkJobBudget) {
-          return { processed, blocked: error.blocked };
-        }
-        throw error;
-      }
-      throw error;
+      throw new DrainLimitError(blockedBeforeBatch);
     }
+
+    if (summary.pending === 0) {
+      break;
+    }
+
+    const slots = Math.min(maxConcurrent - summary.processing, limit - processed, summary.pending);
+    if (slots <= 0) {
+      break;
+    }
+
+    const outcomes = await Promise.all(
+      Array.from({ length: slots }, async () => {
+        try {
+          return await processNextJob(context);
+        } catch (error) {
+          if (error instanceof DrainLimitError) {
+            return error;
+          }
+          throw error;
+        }
+      })
+    );
+
+    let batchProcessed = 0;
+    for (const outcome of outcomes) {
+      if (outcome instanceof DrainLimitError) {
+        if (context.checkDrainLimits || context.checkJobBudget) {
+          return { processed, blocked: outcome.blocked };
+        }
+        throw outcome;
+      }
+      if (outcome) {
+        batchProcessed += 1;
+      }
+    }
+
+    if (batchProcessed === 0) {
+      break;
+    }
+
+    processed += batchProcessed;
   }
 
   if (context.checkDrainLimits || context.checkJobBudget) {

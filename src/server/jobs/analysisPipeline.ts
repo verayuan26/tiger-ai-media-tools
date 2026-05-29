@@ -4,10 +4,11 @@ import type { createRepositories } from '../db/repositories';
 import {
   extractAudioTrack,
   extractVideoFrames,
+  ensureTranscriptionAudioFile,
   probeMedia,
-  resolveTranscriptionAudioPath,
   transcriptionAudioPath
 } from '../media/ffmpeg';
+import { isTranscriptionNoSpeechError } from '../ai/transcriptionErrors';
 import type { AnalysisJob, JobStage } from '../../shared/types';
 import type { DrainBlockedInfo } from '../../shared/settings';
 
@@ -125,9 +126,22 @@ export async function processAnalysisJob(
         return { status: 'skipped' };
       }
 
-      const audioPath = resolveTranscriptionAudioPath(asset, context.dataDir);
-      const result = await context.aiProvider.transcribeAudio({ audioPath });
-      context.repos.transcripts.replaceSegments(asset.id, result.segments);
+      const audioPath = await ensureTranscriptionAudioFile({
+        asset,
+        dataDir: context.dataDir
+      });
+
+      try {
+        const result = await context.aiProvider.transcribeAudio({ audioPath });
+        context.repos.transcripts.replaceSegments(asset.id, result.segments);
+      } catch (error) {
+        if (isTranscriptionNoSpeechError(error)) {
+          context.repos.transcripts.replaceSegments(asset.id, []);
+        } else {
+          throw error;
+        }
+      }
+
       context.repos.assets.setMetadata(asset.id, { status: 'partial' });
       return { status: 'done' };
     }

@@ -2,11 +2,18 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { lookup } from 'mime-types';
 import type { AiProvider, ImageAnalysisResult, TranscriptResult, VisualTagResult } from './provider';
+import { TranscriptionUnsupportedError } from './transcriptionErrors';
 
 export interface OpenAiCompatibleProviderConfig {
   baseUrl: string;
   apiKey: string;
   visionModel: string;
+  transcribeModel: string;
+}
+
+export interface OpenAiTranscriptionConfig {
+  baseUrl: string;
+  apiKey: string;
   transcribeModel: string;
 }
 
@@ -43,12 +50,55 @@ export async function pingOpenAiCompatibleProvider(config: OpenAiCompatibleProvi
   assertOkResponse(response, 'OpenAI-compatible connectivity check failed');
 }
 
+export async function transcribeAudioWithOpenAiCompatible(
+  config: OpenAiTranscriptionConfig,
+  input: { audioPath: string }
+): Promise<TranscriptResult> {
+  assertTranscriptionConfig(config);
+
+  const baseUrl = normalizeOpenAiCompatibleBaseUrl(config.baseUrl);
+  const audio = await readFile(input.audioPath);
+  const fileName = path.basename(input.audioPath);
+  const mimeType = lookup(input.audioPath) || 'application/octet-stream';
+  const formData = new FormData();
+  formData.set('model', config.transcribeModel);
+  formData.set('file', new Blob([audio], { type: mimeType }), fileName);
+
+  const transcriptionUrl = `${baseUrl}/audio/transcriptions`;
+  const response = await fetch(transcriptionUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`
+    },
+    body: formData
+  });
+
+  assertTranscriptionResponse(response, transcriptionUrl);
+  const body = (await response.json()) as TranscriptionResponse;
+  return {
+    segments: [
+      {
+        startSeconds: 0,
+        endSeconds: 0,
+        language: typeof body.language === 'string' && body.language.length > 0 ? body.language : 'unknown',
+        text: typeof body.text === 'string' ? body.text : '',
+        translation: null
+      }
+    ]
+  };
+}
+
 export function createOpenAiCompatibleProvider(config: OpenAiCompatibleProviderConfig): AiProvider {
   validateConfig(config);
-  const baseUrl = normalizeOpenAiCompatibleBaseUrl(config.baseUrl);
+  const transcriptionConfig: OpenAiTranscriptionConfig = {
+    baseUrl: config.baseUrl,
+    apiKey: config.apiKey,
+    transcribeModel: config.transcribeModel
+  };
 
   return {
     async analyzeImage({ imagePath }) {
+      const baseUrl = normalizeOpenAiCompatibleBaseUrl(config.baseUrl);
       const image = await readFile(imagePath);
       const mimeType = lookup(imagePath) || 'application/octet-stream';
       const response = await fetch(`${baseUrl}/chat/completions`, {
@@ -89,36 +139,8 @@ export function createOpenAiCompatibleProvider(config: OpenAiCompatibleProviderC
       return parseImageAnalysisResult(content);
     },
 
-    async transcribeAudio({ audioPath }) {
-      const audio = await readFile(audioPath);
-      const fileName = path.basename(audioPath);
-      const mimeType = lookup(audioPath) || 'application/octet-stream';
-      const formData = new FormData();
-      formData.set('model', config.transcribeModel);
-      formData.set('file', new Blob([audio], { type: mimeType }), fileName);
-
-      const transcriptionUrl = `${baseUrl}/audio/transcriptions`;
-      const response = await fetch(transcriptionUrl, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${config.apiKey}`
-        },
-        body: formData
-      });
-
-      assertOkResponse(response, `OpenAI-compatible audio transcription request failed (POST ${transcriptionUrl})`);
-      const body = (await response.json()) as TranscriptionResponse;
-      return {
-        segments: [
-          {
-            startSeconds: 0,
-            endSeconds: 0,
-            language: typeof body.language === 'string' && body.language.length > 0 ? body.language : 'unknown',
-            text: typeof body.text === 'string' ? body.text : '',
-            translation: null
-          }
-        ]
-      };
+    async transcribeAudio(input) {
+      return transcribeAudioWithOpenAiCompatible(transcriptionConfig, input);
     }
   };
 }
@@ -126,6 +148,32 @@ export function createOpenAiCompatibleProvider(config: OpenAiCompatibleProviderC
 function assertOkResponse(response: Response, message: string): void {
   if (!response.ok) {
     throw new Error(`${message} with HTTP status ${response.status}.`);
+  }
+}
+
+function assertTranscriptionResponse(response: Response, endpoint: string): void {
+  if (response.ok) {
+    return;
+  }
+
+  if (response.status === 404 || response.status === 405 || response.status === 501) {
+    throw new TranscriptionUnsupportedError(response.status, endpoint);
+  }
+
+  throw new Error(
+    `OpenAI-compatible audio transcription request failed (POST ${endpoint}) with HTTP status ${response.status}.`
+  );
+}
+
+function assertTranscriptionConfig(config: OpenAiTranscriptionConfig): void {
+  if (!config.baseUrl.trim()) {
+    throw new Error('Fallback transcription base URL is required.');
+  }
+  if (!config.apiKey.trim()) {
+    throw new Error('Fallback transcription API key is required.');
+  }
+  if (!config.transcribeModel.trim()) {
+    throw new Error('Fallback transcription model is required.');
   }
 }
 

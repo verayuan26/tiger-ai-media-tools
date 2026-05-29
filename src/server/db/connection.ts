@@ -83,6 +83,91 @@ export function openDatabase(dbPath: string): LibraryDatabase {
       4,
       new Date().toISOString()
     );
+    appliedVersions.add(4);
+  }
+
+  if (!appliedVersions.has(5)) {
+    const columns = db.prepare('pragma table_info(app_settings)').all() as Array<{ name: string }>;
+    const names = new Set(columns.map((column) => column.name));
+    if (!names.has('transcription_mode')) {
+      db.exec(
+        `alter table app_settings add column transcription_mode text not null default 'auto' check (transcription_mode in ('cloud', 'local', 'auto'))`
+      );
+    }
+    if (!names.has('local_whisper_bin')) {
+      db.exec(`alter table app_settings add column local_whisper_bin text not null default 'whisper-cli'`);
+    }
+    if (!names.has('local_whisper_model')) {
+      db.exec(`alter table app_settings add column local_whisper_model text not null default ''`);
+    }
+    db.prepare('insert into schema_migrations (version, applied_at) values (?, ?)').run(
+      5,
+      new Date().toISOString()
+    );
+    appliedVersions.add(5);
+  }
+
+  if (!appliedVersions.has(6)) {
+    const columns = db.prepare('pragma table_info(app_settings)').all() as Array<{ name: string }>;
+    const names = new Set(columns.map((column) => column.name));
+    if (!names.has('fallback_transcribe_endpoint')) {
+      db.exec(`alter table app_settings add column fallback_transcribe_endpoint text not null default ''`);
+    }
+    if (!names.has('fallback_transcribe_model')) {
+      db.exec(`alter table app_settings add column fallback_transcribe_model text not null default ''`);
+    }
+    if (!names.has('fallback_transcribe_api_key')) {
+      db.exec(`alter table app_settings add column fallback_transcribe_api_key text not null default ''`);
+    }
+    db.exec(`update app_settings set transcription_mode = 'auto' where transcription_mode = 'local'`);
+    db.prepare('insert into schema_migrations (version, applied_at) values (?, ?)').run(
+      6,
+      new Date().toISOString()
+    );
+    appliedVersions.add(6);
+  }
+
+  if (!appliedVersions.has(7)) {
+    const columns = db.prepare('pragma table_info(app_settings)').all() as Array<{ name: string }>;
+    const names = new Set(columns.map((column) => column.name));
+    if (!names.has('fallback_transcribe_provider')) {
+      db.exec(
+        `alter table app_settings add column fallback_transcribe_provider text not null default 'openai-compatible' check (fallback_transcribe_provider in ('openai-compatible', 'dashscope-filetrans'))`
+      );
+    }
+    db.prepare('insert into schema_migrations (version, applied_at) values (?, ?)').run(
+      7,
+      new Date().toISOString()
+    );
+    appliedVersions.add(7);
+  }
+
+  if (!appliedVersions.has(8)) {
+    const columns = db.prepare('pragma table_info(app_settings)').all() as Array<{ name: string }>;
+    const names = new Set(columns.map((column) => column.name));
+    if (names.has('fallback_transcribe_provider')) {
+      const rows = db
+        .prepare('select id, fallback_transcribe_provider from app_settings')
+        .all() as Array<{ id: string; fallback_transcribe_provider: string }>;
+      db.exec('alter table app_settings drop column fallback_transcribe_provider');
+      db.exec(
+        `alter table app_settings add column fallback_transcribe_provider text not null default 'dashscope-asr'`
+      );
+      const update = db.prepare(
+        'update app_settings set fallback_transcribe_provider = ? where id = ?'
+      );
+      for (const row of rows) {
+        const provider =
+          String(row.fallback_transcribe_provider) === 'openai-compatible'
+            ? 'openai-compatible'
+            : 'dashscope-asr';
+        update.run(provider, row.id);
+      }
+    }
+    db.prepare('insert into schema_migrations (version, applied_at) values (?, ?)').run(
+      8,
+      new Date().toISOString()
+    );
   }
 
   return db;

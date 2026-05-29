@@ -148,7 +148,7 @@ export function SourcesPage(): React.JSX.Element {
         title="导入来源"
         description="管理本地目录和外置硬盘素材来源"
         actions={
-          <Button className="bg-[#4a6fa5] hover:bg-[#3d5a8a]" onClick={() => setAddDialogOpen(true)}>
+          <Button onClick={() => setAddDialogOpen(true)}>
             <Plus className="size-4 mr-2" />
             添加目录
           </Button>
@@ -176,7 +176,7 @@ export function SourcesPage(): React.JSX.Element {
       <div className="flex-1 overflow-auto p-6">
         <div className="max-w-5xl space-y-4">
           {loading ? (
-            <Card className="p-8 text-center text-sm text-gray-600">加载来源列表…</Card>
+            <Card className="p-8 text-center text-sm text-muted-foreground">加载来源列表…</Card>
           ) : (
             sources.map((source) => {
               const disconnected = isSourceDisconnected(source);
@@ -196,8 +196,8 @@ export function SourcesPage(): React.JSX.Element {
                     <div className="flex-1">
                       <div className="flex items-start justify-between gap-4">
                         <div>
-                          <h3 className="font-semibold text-lg text-gray-900">{source.name}</h3>
-                          <p className="text-sm text-gray-600 mt-1 font-mono break-all">{source.rootPath}</p>
+                          <h3 className="font-semibold text-lg text-foreground">{source.name}</h3>
+                          <p className="text-sm text-muted-foreground mt-1 font-mono break-all">{source.rootPath}</p>
                         </div>
 
                         <div className="flex items-center gap-2">
@@ -212,17 +212,17 @@ export function SourcesPage(): React.JSX.Element {
 
                       <div className="flex flex-wrap items-center gap-6 mt-4">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm text-gray-600">文件数量:</span>
+                          <span className="text-sm text-muted-foreground">文件数量:</span>
                           <Badge variant="outline">{source.assetCount} 个</Badge>
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <span className="text-sm text-gray-600">最后扫描:</span>
-                          <span className="text-sm text-gray-900">{formatDateTime(source.lastScannedAt)}</span>
+                          <span className="text-sm text-muted-foreground">最后扫描:</span>
+                          <span className="text-sm text-foreground">{formatDateTime(source.lastScannedAt)}</span>
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <span className="text-sm text-gray-600">监听变化:</span>
+                          <span className="text-sm text-muted-foreground">监听变化:</span>
                           <Switch
                             checked={source.incrementalScanEnabled}
                             disabled={busy}
@@ -263,7 +263,7 @@ export function SourcesPage(): React.JSX.Element {
                             <RefreshCw className={`size-4 mr-2 ${busy ? 'animate-spin' : ''}`} />
                             {busy ? '扫描中…' : '重新扫描'}
                           </Button>
-                          <div className="flex items-center gap-2 text-sm text-gray-600">
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <CheckCircle className="size-4 text-green-600" />
                             <span>连接正常</span>
                           </div>
@@ -278,9 +278,9 @@ export function SourcesPage(): React.JSX.Element {
 
           <Card className="p-8 border-2 border-dashed">
             <div className="text-center">
-              <Folder className="size-12 mx-auto text-gray-400 mb-4" />
-              <h3 className="font-medium text-gray-900 mb-2">添加新的素材来源</h3>
-              <p className="text-sm text-gray-600 mb-4">
+              <Folder className="size-12 mx-auto text-muted-foreground mb-4" />
+              <h3 className="font-medium text-foreground mb-2">添加新的素材来源</h3>
+              <p className="text-sm text-muted-foreground mb-4">
                 支持本地目录和外置硬盘，系统会自动扫描并解析媒体文件
               </p>
               <Button variant="outline" onClick={() => setAddDialogOpen(true)}>

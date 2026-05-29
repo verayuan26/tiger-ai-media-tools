@@ -34,7 +34,7 @@ export function LibraryAssetGrid({ assets, loading }: LibraryAssetGridProps): Re
   }
 
   return (
-    <div className="flex-1 overflow-auto p-4 bg-gray-50">
+    <div className="flex-1 overflow-auto p-4 bg-background">
       {loading ? (
         <p className="text-sm text-muted-foreground mb-3 flex items-center gap-2">
           <Loader2 className="size-4 animate-spin" />
@@ -58,8 +58,8 @@ function AssetCard({ asset, onClick }: { asset: AssetListItem; onClick: () => vo
       type="button"
       onClick={onClick}
       className={cn(
-        'group relative rounded-lg overflow-hidden border border-gray-200',
-        'hover:border-gray-300 transition-all hover:shadow-lg text-left w-full'
+        'group relative rounded-lg overflow-hidden border border-border bg-card',
+        'hover:border-primary/40 transition-all hover:shadow-lg hover:shadow-black/40 text-left w-full'
       )}
     >
       <div className="aspect-video relative overflow-hidden bg-muted">

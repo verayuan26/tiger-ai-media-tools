@@ -7,6 +7,10 @@ import {
   pingOpenAiCompatibleProvider,
   type OpenAiCompatibleProviderConfig
 } from '../ai/openAiCompatibleProvider';
+import {
+  withTranscriptionFallback
+} from '../ai/withTranscriptionFallback';
+import { loadFallbackTranscriptionConfigFromEnv } from '../ai/loadFallbackTranscriptionConfig';
 import type {
   createSettingsRepository,
   ResolvedAiCredentials
@@ -66,7 +70,15 @@ export function createSettingsService(config: AppConfig, settingsRepo: SettingsR
         return createMockAiProvider();
       }
 
-      return createOpenAiCompatibleProvider(toOpenAiConfig(resolved));
+      const cloudProvider = createOpenAiCompatibleProvider(toOpenAiConfig(resolved));
+      const settings = settingsRepo.get();
+      const fallback =
+        settingsRepo.resolveFallbackTranscribeCredentials() ??
+        loadFallbackTranscriptionConfigFromEnv(resolved.apiKey);
+      return withTranscriptionFallback(cloudProvider, {
+        mode: settings.transcriptionMode,
+        fallback
+      });
     },
 
     getFrameMode(): 'balanced' | 'precision' {

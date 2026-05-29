@@ -86,7 +86,10 @@ export function normalizeTagName(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-const JOB_STAGE_ORDER_SQL = `case stage
+const JOB_STAGE_ORDER_SQL = jobStageOrderSql('stage');
+
+function jobStageOrderSql(columnRef: string): string {
+  return `case ${columnRef}
   when 'metadata' then 0
   when 'thumbnail' then 1
   when 'frames' then 2
@@ -95,6 +98,24 @@ const JOB_STAGE_ORDER_SQL = `case stage
   when 'ai_transcript' then 5
   else 99
 end`;
+}
+
+const PENDING_JOB_HAS_OPEN_PREREQUISITE_SQL = `(
+  candidate.stage = 'ai_transcript'
+  and exists (
+    select 1
+    from analysis_jobs prerequisite
+    where prerequisite.asset_id = candidate.asset_id
+      and prerequisite.stage = 'audio'
+      and prerequisite.status not in ('done', 'skipped')
+  )
+)`;
+
+const CLAIMABLE_PENDING_JOB_SQL = `select candidate.id
+  from analysis_jobs candidate
+  where candidate.status = 'pending'
+    and not ${PENDING_JOB_HAS_OPEN_PREREQUISITE_SQL}
+  order by candidate.created_at, ${jobStageOrderSql('candidate.stage')}, candidate.id`;
 
 function mapSource(row: Row): LibrarySource {
   return {
@@ -418,8 +439,18 @@ export function createRepositories(db: LibraryDatabase) {
       }
 
       if (filters.query) {
-        clauses.push('(a.file_name like ? or a.path like ?)');
-        params.push(`%${filters.query}%`, `%${filters.query}%`);
+        const textPattern = `%${filters.query}%`;
+        const tagPattern = `%${normalizeTagName(filters.query)}%`;
+        clauses.push(`(
+          a.file_name like ? or a.path like ? or exists (
+            select 1 from asset_tags at
+            join tags t on t.id = at.tag_id
+            where at.target_id = a.id
+              and at.target_type = 'asset'
+              and (t.display_name like ? or t.normalized_name like ?)
+          )
+        )`);
+        params.push(textPattern, textPattern, textPattern, tagPattern);
       }
 
       if (filters.tagNames?.length) {
@@ -525,9 +556,7 @@ export function createRepositories(db: LibraryDatabase) {
                  error_message = null,
                  updated_at = ?
 	             where id = (
-	               select id from analysis_jobs
-	               where status = 'pending'
-	               order by created_at, ${JOB_STAGE_ORDER_SQL}, id
+	               ${CLAIMABLE_PENDING_JOB_SQL}
 	               limit 1
 	             )
              returning *`
@@ -550,23 +579,28 @@ export function createRepositories(db: LibraryDatabase) {
       ).run(status, errorMessage, status, nowIso(), jobId);
     },
 
-    retryFailed(assetId?: string): number {
+    retryFailed(assetId?: string | string[]): number {
       const timestamp = nowIso();
-      const result = assetId
-        ? db
-            .prepare(
-              `update analysis_jobs
-               set status = 'pending', error_message = null, updated_at = ?
-               where status = 'failed' and asset_id = ?`
-            )
-            .run(timestamp, assetId)
-        : db
-            .prepare(
-              `update analysis_jobs
-               set status = 'pending', error_message = null, updated_at = ?
-               where status = 'failed'`
-            )
-            .run(timestamp);
+      if (!assetId) {
+        const result = db
+          .prepare(
+            `update analysis_jobs
+             set status = 'pending', error_message = null, updated_at = ?
+             where status = 'failed'`
+          )
+          .run(timestamp);
+        return Number(result.changes);
+      }
+
+      const assetIds = Array.isArray(assetId) ? assetId : [assetId];
+      const placeholders = assetIds.map(() => '?').join(', ');
+      const result = db
+        .prepare(
+          `update analysis_jobs
+           set status = 'pending', error_message = null, updated_at = ?
+           where status = 'failed' and asset_id in (${placeholders})`
+        )
+        .run(timestamp, ...assetIds);
 
       return Number(result.changes);
     },

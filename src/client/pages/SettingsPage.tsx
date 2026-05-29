@@ -11,7 +11,8 @@ import {
   Zap
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { getSettings, patchSettings, testAiConnection } from '../api';
+import { getSettings, patchSettings, testAiConnection, getCacheStats, clearGeneratedCache } from '../api';
+import { formatBytes } from '../lib/format-bytes';
 import { PageHeader } from '../components/PageHeader';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
@@ -26,7 +27,8 @@ import {
 } from '../components/ui/select';
 import { Slider } from '../components/ui/slider';
 import { Switch } from '../components/ui/switch';
-import type { AiProviderName, ApiProtocol } from '../../shared/settings';
+import type { AiProviderName, ApiProtocol, FallbackTranscribeProvider, TranscriptionMode } from '../../shared/settings';
+import type { CacheStats } from '../../shared/cache';
 
 export function SettingsPage(): React.JSX.Element {
   const [loading, setLoading] = useState(true);
@@ -41,12 +43,23 @@ export function SettingsPage(): React.JSX.Element {
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
   const [openAiVisionModel, setOpenAiVisionModel] = useState('');
   const [openAiTranscribeModel, setOpenAiTranscribeModel] = useState('');
+  const [transcriptionMode, setTranscriptionMode] = useState<TranscriptionMode>('auto');
+  const [fallbackTranscribeProvider, setFallbackTranscribeProvider] =
+    useState<FallbackTranscribeProvider>('dashscope-asr');
+  const [fallbackTranscribeEndpoint, setFallbackTranscribeEndpoint] = useState('');
+  const [fallbackTranscribeModel, setFallbackTranscribeModel] = useState('');
+  const [fallbackTranscribeApiKey, setFallbackTranscribeApiKey] = useState('');
+  const [fallbackTranscribeApiKeyConfigured, setFallbackTranscribeApiKeyConfigured] = useState(false);
+  const [showFallbackApiKey, setShowFallbackApiKey] = useState(false);
   const [precisionModeDefault, setPrecisionModeDefault] = useState(false);
   const [reuseParsedResults, setReuseParsedResults] = useState(true);
   const [dailySpendYuan, setDailySpendYuan] = useState(0);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
   const [testMessage, setTestMessage] = useState('');
+  const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
+  const [cacheLoading, setCacheLoading] = useState(false);
+  const [cacheClearing, setCacheClearing] = useState(false);
 
   useEffect(() => {
     void loadSettings();
@@ -63,11 +76,18 @@ export function SettingsPage(): React.JSX.Element {
       setApiKey('');
       setOpenAiVisionModel(settings.openAiVisionModel);
       setOpenAiTranscribeModel(settings.openAiTranscribeModel);
+      setTranscriptionMode(settings.transcriptionMode);
+      setFallbackTranscribeProvider(settings.fallbackTranscribeProvider);
+      setFallbackTranscribeEndpoint(settings.fallbackTranscribeEndpoint);
+      setFallbackTranscribeModel(settings.fallbackTranscribeModel);
+      setFallbackTranscribeApiKeyConfigured(settings.fallbackTranscribeApiKeyConfigured);
+      setFallbackTranscribeApiKey('');
       setDailyBudget([settings.dailyBudgetYuan]);
       setConcurrentTasks([settings.concurrentTasks]);
       setPrecisionModeDefault(settings.precisionModeDefault);
       setReuseParsedResults(settings.reuseParsedResults);
       setDailySpendYuan(settings.dailySpendYuan);
+      await loadCacheStats();
     } catch (error) {
       toast.error('加载设置失败', {
         description: error instanceof Error ? error.message : '请稍后重试'
@@ -111,6 +131,47 @@ export function SettingsPage(): React.JSX.Element {
     }
   }
 
+  async function loadCacheStats(): Promise<void> {
+    setCacheLoading(true);
+    try {
+      const stats = await getCacheStats();
+      setCacheStats(stats);
+    } catch (error) {
+      setCacheStats(null);
+      toast.error('读取缓存大小失败', {
+        description: error instanceof Error ? error.message : '请稍后重试'
+      });
+    } finally {
+      setCacheLoading(false);
+    }
+  }
+
+  async function handleClearCache(): Promise<void> {
+    if (!cacheStats || cacheStats.totalBytes === 0) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      '将删除本地生成的抽帧、音频转写缓存和缩略图文件，不会删除原始素材和索引数据库。清理后需要重新处理相关任务。确定继续吗？'
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setCacheClearing(true);
+    try {
+      const stats = await clearGeneratedCache();
+      setCacheStats(stats);
+      toast.success('缓存已清理', { description: '可重新处理队列任务以生成新的分析缓存' });
+    } catch (error) {
+      toast.error('清理缓存失败', {
+        description: error instanceof Error ? error.message : '请稍后重试'
+      });
+    } finally {
+      setCacheClearing(false);
+    }
+  }
+
   async function handleSaveSettings(): Promise<void> {
     setSaving(true);
     try {
@@ -120,6 +181,13 @@ export function SettingsPage(): React.JSX.Element {
         aiProviderName,
         openAiVisionModel: openAiVisionModel.trim(),
         openAiTranscribeModel: openAiTranscribeModel.trim(),
+        transcriptionMode,
+        fallbackTranscribeProvider,
+        fallbackTranscribeEndpoint: fallbackTranscribeEndpoint.trim(),
+        fallbackTranscribeModel: fallbackTranscribeModel.trim(),
+        ...(fallbackTranscribeApiKey.trim().length > 0
+          ? { fallbackTranscribeApiKey: fallbackTranscribeApiKey.trim() }
+          : {}),
         dailyBudgetYuan: dailyBudget[0],
         concurrentTasks: concurrentTasks[0],
         precisionModeDefault,
@@ -130,6 +198,12 @@ export function SettingsPage(): React.JSX.Element {
       setApiKey('');
       setOpenAiVisionModel(settings.openAiVisionModel);
       setOpenAiTranscribeModel(settings.openAiTranscribeModel);
+      setTranscriptionMode(settings.transcriptionMode);
+      setFallbackTranscribeProvider(settings.fallbackTranscribeProvider);
+      setFallbackTranscribeEndpoint(settings.fallbackTranscribeEndpoint);
+      setFallbackTranscribeModel(settings.fallbackTranscribeModel);
+      setFallbackTranscribeApiKeyConfigured(settings.fallbackTranscribeApiKeyConfigured);
+      setFallbackTranscribeApiKey('');
       setDailySpendYuan(settings.dailySpendYuan);
       toast.success('设置已保存', { description: '配置已写入本地数据库，重启服务后仍生效' });
     } catch (error) {
@@ -144,7 +218,7 @@ export function SettingsPage(): React.JSX.Element {
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-gray-500" />
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -161,8 +235,8 @@ export function SettingsPage(): React.JSX.Element {
                 <Zap className="size-5 text-purple-600" />
               </div>
               <div>
-                <h2 className="font-semibold text-gray-900">云端 AI 配置</h2>
-                <p className="text-sm text-gray-600">配置视觉识别和语音识别 API</p>
+                <h2 className="font-semibold text-foreground">云端 AI 配置</h2>
+                <p className="text-sm text-muted-foreground">配置视觉识别和语音识别 API</p>
               </div>
             </div>
 
@@ -205,7 +279,7 @@ export function SettingsPage(): React.JSX.Element {
                   placeholder="https://api.openai.com/v1"
                   className="mt-2"
                 />
-                <p className="text-xs text-gray-500 mt-2">可以配置为自建代理或第三方服务地址</p>
+                <p className="text-xs text-muted-foreground mt-2">可以配置为自建代理或第三方服务地址</p>
               </div>
 
               {aiProviderName === 'openai-compatible' ? (
@@ -220,7 +294,7 @@ export function SettingsPage(): React.JSX.Element {
                       placeholder="gpt-4o-mini"
                       className="mt-2"
                     />
-                    <p className="text-xs text-gray-500 mt-2">用于图片/视频关键帧标签分析</p>
+                    <p className="text-xs text-muted-foreground mt-2">用于图片/视频关键帧标签分析</p>
                   </div>
 
                   <div>
@@ -233,7 +307,140 @@ export function SettingsPage(): React.JSX.Element {
                       placeholder="whisper-1"
                       className="mt-2"
                     />
-                    <p className="text-xs text-gray-500 mt-2">用于音频片段转写</p>
+                    <p className="text-xs text-muted-foreground mt-2">用于云端音频转写（需 API 支持 /audio/transcriptions）</p>
+                  </div>
+
+                  <div className="p-4 border rounded-lg space-y-4 bg-muted/30">
+                    <div>
+                      <p className="font-medium text-foreground">备选转写（独立配置）</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        与主视觉模型完全独立，主端点不支持转写时自动切换
+                      </p>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="transcription-mode">转写策略</Label>
+                      <Select
+                        value={transcriptionMode}
+                        onValueChange={(value) => setTranscriptionMode(value as TranscriptionMode)}
+                      >
+                        <SelectTrigger className="mt-2" id="transcription-mode">
+                          <SelectValue placeholder="选择转写策略" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="auto">自动降级（推荐）</SelectItem>
+                          <SelectItem value="cloud">仅主端点</SelectItem>
+                          <SelectItem value="fallback">仅备选转写</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        自动降级：先请求主端点；若不支持转写接口，再使用备选 Provider
+                      </p>
+                    </div>
+
+                    {transcriptionMode !== 'cloud' ? (
+                      <>
+                        <div>
+                          <Label htmlFor="fallback-transcribe-provider">备选 Provider</Label>
+                          <Select
+                            value={fallbackTranscribeProvider}
+                            onValueChange={(value) => {
+                              const provider = value as FallbackTranscribeProvider;
+                              setFallbackTranscribeProvider(provider);
+                              if (provider === 'dashscope-asr') {
+                                if (!fallbackTranscribeEndpoint.trim()) {
+                                  setFallbackTranscribeEndpoint('https://dashscope.aliyuncs.com/api/v1');
+                                }
+                                if (!fallbackTranscribeModel.trim()) {
+                                  setFallbackTranscribeModel('qwen3-asr-flash-filetrans');
+                                }
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="mt-2" id="fallback-transcribe-provider">
+                              <SelectValue placeholder="选择备选 Provider" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="dashscope-asr">百炼 DashScope ASR</SelectItem>
+                              <SelectItem value="openai-compatible">OpenAI 兼容（Whisper 接口）</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            百炼 DashScope ASR 走统一异步录音识别 API，模型可填 qwen3-asr-flash-filetrans、fun-asr 等
+                          </p>
+                        </div>
+
+                        <div>
+                          <Label htmlFor="fallback-transcribe-endpoint">
+                            {fallbackTranscribeProvider === 'dashscope-asr'
+                              ? '百炼 API 地址'
+                              : '备选 API 端点'}
+                          </Label>
+                          <Input
+                            id="fallback-transcribe-endpoint"
+                            type="text"
+                            value={fallbackTranscribeEndpoint}
+                            onChange={(event) => setFallbackTranscribeEndpoint(event.target.value)}
+                            placeholder={
+                              fallbackTranscribeProvider === 'dashscope-asr'
+                                ? 'https://dashscope.aliyuncs.com/api/v1'
+                                : 'https://api.siliconflow.cn/v1'
+                            }
+                            className="mt-2"
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor="fallback-transcribe-model">备选转写模型</Label>
+                          <Input
+                            id="fallback-transcribe-model"
+                            type="text"
+                            value={fallbackTranscribeModel}
+                            onChange={(event) => setFallbackTranscribeModel(event.target.value)}
+                            placeholder={
+                              fallbackTranscribeProvider === 'dashscope-asr'
+                                ? 'qwen3-asr-flash-filetrans'
+                                : 'FunAudioLLM/SenseVoiceSmall'
+                            }
+                            className="mt-2"
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor="fallback-transcribe-api-key">备选 API Key</Label>
+                          <div className="relative mt-2">
+                            <Input
+                              id="fallback-transcribe-api-key"
+                              type={showFallbackApiKey ? 'text' : 'password'}
+                              value={fallbackTranscribeApiKey}
+                              onChange={(event) => setFallbackTranscribeApiKey(event.target.value)}
+                              className="pr-10"
+                              placeholder={
+                                fallbackTranscribeProvider === 'dashscope-asr'
+                                  ? fallbackTranscribeApiKeyConfigured
+                                    ? '已保存百炼 API Key'
+                                    : '百炼 DashScope API Key（必填）'
+                                  : fallbackTranscribeApiKeyConfigured
+                                    ? '已保存，留空则复用主 API Key'
+                                    : '留空则复用主 API Key'
+                              }
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowFallbackApiKey((current) => !current)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground"
+                            >
+                              {showFallbackApiKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                            </button>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            {fallbackTranscribeProvider === 'dashscope-asr'
+                              ? '百炼 Key 与主端点 Key 独立，不可混用'
+                              : '备选端点与主端点使用不同 Key 时单独填写；否则可留空'}
+                          </p>
+                        </div>
+                      </>
+                    ) : null}
                   </div>
                 </>
               ) : null}
@@ -253,7 +460,7 @@ export function SettingsPage(): React.JSX.Element {
                     <button
                       type="button"
                       onClick={() => setShowApiKey((current) => !current)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground"
                     >
                       {showApiKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                     </button>
@@ -288,7 +495,7 @@ export function SettingsPage(): React.JSX.Element {
                     )}
                   </div>
                 ) : null}
-                <p className="text-xs text-gray-500 mt-2">API Key 保存在本地 SQLite，不会上传到第三方控制台</p>
+                <p className="text-xs text-muted-foreground mt-2">API Key 保存在本地 SQLite，不会上传到第三方控制台</p>
               </div>
 
               <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
@@ -308,8 +515,8 @@ export function SettingsPage(): React.JSX.Element {
                 <DollarSign className="size-5 text-amber-600" />
               </div>
               <div>
-                <h2 className="font-semibold text-gray-900">成本控制</h2>
-                <p className="text-sm text-gray-600">设置每日预算和并发限制</p>
+                <h2 className="font-semibold text-foreground">成本控制</h2>
+                <p className="text-sm text-muted-foreground">设置每日预算和并发限制</p>
               </div>
             </div>
 
@@ -317,10 +524,10 @@ export function SettingsPage(): React.JSX.Element {
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <Label>每日预算上限</Label>
-                  <span className="text-sm font-medium text-gray-900">¥{dailyBudget[0]}</span>
+                  <span className="text-sm font-medium text-foreground">¥{dailyBudget[0]}</span>
                 </div>
                 <Slider value={dailyBudget} onValueChange={setDailyBudget} min={10} max={500} step={10} className="mb-2" />
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-muted-foreground">
                   今日已用 ¥{dailySpendYuan.toFixed(2)}；达到预算后新的 AI 任务将被拒绝
                 </p>
               </div>
@@ -328,7 +535,7 @@ export function SettingsPage(): React.JSX.Element {
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <Label>并发任务上限</Label>
-                  <span className="text-sm font-medium text-gray-900">{concurrentTasks[0]} 个</span>
+                  <span className="text-sm font-medium text-foreground">{concurrentTasks[0]} 个</span>
                 </div>
                 <Slider
                   value={concurrentTasks}
@@ -338,13 +545,13 @@ export function SettingsPage(): React.JSX.Element {
                   step={1}
                   className="mb-2"
                 />
-                <p className="text-xs text-gray-500">控制同时处于 processing 状态的任务数量</p>
+                <p className="text-xs text-muted-foreground">控制同时处于 processing 状态的任务数量</p>
               </div>
 
               <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div>
-                  <p className="font-medium text-gray-900">精查模式默认开关</p>
-                  <p className="text-sm text-gray-600 mt-1">开启后视频默认每 3 秒抽一帧（可能增加成本）</p>
+                  <p className="font-medium text-foreground">精查模式默认开关</p>
+                  <p className="text-sm text-muted-foreground mt-1">开启后视频默认每 3 秒抽一帧（可能增加成本）</p>
                 </div>
                 <Switch checked={precisionModeDefault} onCheckedChange={setPrecisionModeDefault} />
               </div>
@@ -357,30 +564,47 @@ export function SettingsPage(): React.JSX.Element {
                 <HardDrive className="size-5 text-green-600" />
               </div>
               <div>
-                <h2 className="font-semibold text-gray-900">缓存设置</h2>
-                <p className="text-sm text-gray-600">复用已解析结果，节省成本</p>
+                <h2 className="font-semibold text-foreground">缓存设置</h2>
+                <p className="text-sm text-muted-foreground">复用已解析结果，节省成本</p>
               </div>
             </div>
 
             <div className="space-y-4">
               <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div>
-                  <p className="font-medium text-gray-900">复用已解析结果</p>
-                  <p className="text-sm text-gray-600 mt-1">相同文件（基于 hash）自动复用标签和字幕</p>
+                  <p className="font-medium text-foreground">复用已解析结果</p>
+                  <p className="text-sm text-muted-foreground mt-1">相同文件（基于 hash）自动复用标签和字幕</p>
                 </div>
                 <Switch checked={reuseParsedResults} onCheckedChange={setReuseParsedResults} />
               </div>
 
-              <div className="p-4 bg-gray-50 border rounded-lg">
+              <div className="p-4 bg-muted border rounded-lg">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-900">缓存大小</p>
-                    <p className="text-xs text-gray-600 mt-1">本地缓存占用空间</p>
+                    <p className="text-sm font-medium text-foreground">缓存大小</p>
+                    <p className="text-xs text-muted-foreground mt-1">本地缓存占用空间</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-medium text-gray-900">—</p>
-                    <Button variant="ghost" size="sm" className="h-7 text-xs mt-1" disabled>
-                      清理缓存
+                    <p className="text-sm font-medium text-foreground">
+                      {cacheLoading ? '计算中…' : formatBytes(cacheStats?.totalBytes ?? 0)}
+                    </p>
+                    {cacheStats && cacheStats.totalBytes > 0 ? (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        抽帧 {formatBytes(cacheStats.buckets.find((bucket) => bucket.name === 'frames')?.bytes ?? 0)} ·
+                        音频 {formatBytes(cacheStats.buckets.find((bucket) => bucket.name === 'audio')?.bytes ?? 0)} ·
+                        缩略图 {formatBytes(cacheStats.buckets.find((bucket) => bucket.name === 'thumbs')?.bytes ?? 0)}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground mt-1">包含抽帧、转写音频和缩略图缓存</p>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs mt-1"
+                      disabled={cacheLoading || cacheClearing || !cacheStats || cacheStats.totalBytes === 0}
+                      onClick={() => void handleClearCache()}
+                    >
+                      {cacheClearing ? '清理中…' : '清理缓存'}
                     </Button>
                   </div>
                 </div>
@@ -394,8 +618,8 @@ export function SettingsPage(): React.JSX.Element {
                 <Shield className="size-5 text-blue-600" />
               </div>
               <div>
-                <h2 className="font-semibold text-gray-900">文件保护</h2>
-                <p className="text-sm text-gray-600">原始文件安全策略</p>
+                <h2 className="font-semibold text-foreground">文件保护</h2>
+                <p className="text-sm text-muted-foreground">原始文件安全策略</p>
               </div>
             </div>
 
@@ -423,8 +647,8 @@ export function SettingsPage(): React.JSX.Element {
 
             <div className="flex items-center justify-between p-4 border rounded-lg mt-4">
               <div>
-                <p className="font-medium text-gray-900">操作前确认提示</p>
-                <p className="text-sm text-gray-600 mt-1">执行文件操作前显示确认对话框</p>
+                <p className="font-medium text-foreground">操作前确认提示</p>
+                <p className="text-sm text-muted-foreground mt-1">执行文件操作前显示确认对话框</p>
               </div>
               <Switch defaultChecked />
             </div>
@@ -435,7 +659,7 @@ export function SettingsPage(): React.JSX.Element {
               重置
             </Button>
             <Button
-              className="bg-[#4a6fa5] hover:bg-[#3d5a8a]"
+             
               onClick={() => void handleSaveSettings()}
               disabled={saving}
             >

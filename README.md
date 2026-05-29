@@ -99,6 +99,11 @@ AI_MEDIA_DATA_DIR=.data/e2e AI_PROVIDER=mock AI_MEDIA_ENABLE_DEV_ROUTES=1 npm ru
 - `AI_OPENAI_API_KEY`：OpenAI-compatible API key。
 - `AI_OPENAI_VISION_MODEL`：视觉/图片标签模型名。
 - `AI_OPENAI_TRANSCRIBE_MODEL`：音频转写模型名。
+- `AI_TRANSCRIPTION_MODE`：转写模式。`auto`（默认）先走主端点，若不支持 `/audio/transcriptions`（HTTP 404 等）则降级到备选 Provider；`cloud` 仅主端点；`fallback` 仅备选转写。
+- `AI_FALLBACK_TRANSCRIBE_PROVIDER`：备选 Provider。`dashscope-asr`（百炼 DashScope 异步录音识别，默认）或 `openai-compatible`（Whisper 兼容接口）。
+- `AI_FALLBACK_TRANSCRIBE_ENDPOINT`：备选 API 地址。百炼默认 `https://dashscope.aliyuncs.com/api/v1`；Whisper 兼容如 `https://api.siliconflow.cn/v1`。
+- `AI_FALLBACK_TRANSCRIBE_MODEL`：备选转写模型。百炼默认 `qwen3-asr-flash-filetrans`。
+- `AI_FALLBACK_TRANSCRIBE_API_KEY`：备选 API Key。百炼必填且与主 Key 独立；Whisper 兼容可留空复用主 Key。
 - `AI_DAILY_BUDGET_CENTS`：默认每日 AI 预算（分），用于初始化 SQLite `app_settings`（UI 可在设置页覆盖）。
 - `AI_JOB_COST_CENTS`：每完成一个 AI 阶段任务计入的估算成本（分），默认 `10`。
 - `AI_MEDIA_ENABLE_DEV_ROUTES`：仅开发和测试使用。设为 `1` 时启用 `/api/dev/import-fixtures`。
@@ -109,6 +114,30 @@ AI_MEDIA_DATA_DIR=.data/e2e AI_PROVIDER=mock AI_MEDIA_ENABLE_DEV_ROUTES=1 npm ru
 - `PATCH /api/settings`：保存协议、端点、Key、预算、并发等。
 - `POST /api/settings/test-ai`：真实探测 AI 可达性（mock 直接成功；openai-compatible 调用 `/models`）。
 - `POST /api/jobs/drain`：超预算或并发上限时返回 `429` 与 `blocked.code`。
+
+### 语音转写与备选 Provider
+
+许多 OpenAI-compatible 代理（含部分智能体网关）只提供 `/chat/completions`，**不提供** `/audio/transcriptions`，会返回 HTTP 404。可在**设置页 → 备选转写（独立配置）**中配置与主视觉模型完全独立的备选 Provider：
+
+- **转写策略**：自动降级 / 仅主端点 / 仅备选转写
+- **备选 Provider**：
+  - **百炼 DashScope ASR**（推荐）：统一异步录音识别 API，模型填 `qwen3-asr-flash-filetrans`、`fun-asr`、`paraformer-v2` 等
+  - **OpenAI 兼容（Whisper 接口）**：适用于硅基流动、OpenAI 官方等
+- **百炼 API 地址**：`https://dashscope.aliyuncs.com/api/v1`（北京地域）
+- **备选转写模型**：`qwen3-asr-flash-filetrans`
+- **备选 API Key**：百炼 DashScope Key，与主端点 Key 独立
+
+也可通过 `.env` 初始化（首次建库时生效）：
+
+```bash
+AI_TRANSCRIPTION_MODE=auto
+AI_FALLBACK_TRANSCRIBE_PROVIDER=dashscope-asr
+AI_FALLBACK_TRANSCRIBE_ENDPOINT=https://dashscope.aliyuncs.com/api/v1
+AI_FALLBACK_TRANSCRIBE_MODEL=qwen3-asr-flash-filetrans
+AI_FALLBACK_TRANSCRIBE_API_KEY=sk-...
+```
+
+配置后重试失败任务：`POST /api/jobs/retry-failed`。
 
 ## 验证命令
 

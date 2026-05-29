@@ -1,16 +1,22 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { TranscriptionNoSpeechError } from '../ai/transcriptionErrors';
 import { createMockAiProvider } from '../ai/mockProvider';
 import {
   createOpenAiCompatibleProvider,
   normalizeOpenAiCompatibleBaseUrl
 } from '../ai/openAiCompatibleProvider';
+import { openDatabase } from '../db/connection';
+import { createRepositories } from '../db/repositories';
+import { processAnalysisJob } from '../jobs/analysisPipeline';
 import {
   buildFfmpegFrameArgs,
   buildFrameScaleFilter,
   extractAudioTrack,
+  ensureTranscriptionAudioFile,
   extractVideoFrames,
   parseFfprobeDuration,
   probeMedia,
@@ -186,6 +192,39 @@ describe('transcription audio paths', () => {
         '/data'
       )
     ).toBe(path.join('/data', 'audio', 'v1.wav'));
+  });
+});
+
+describe('ensureTranscriptionAudioFile', () => {
+  it('re-extracts missing video audio before transcription', async () => {
+    execaMock.mockResolvedValue({ stdout: '' });
+    const dataDir = await mkdtemp(path.join(os.tmpdir(), 'ai-media-audio-ensure-'));
+
+    try {
+      const asset = {
+        id: 'asset_c860e8ee-e6f9-4e02-8c28-d3d150dafef2',
+        kind: 'video' as const,
+        path: '/input/video.mp4'
+      };
+      const audioPath = await ensureTranscriptionAudioFile({ asset, dataDir });
+
+      expect(audioPath).toBe(path.join(dataDir, 'audio', `${asset.id}.wav`));
+      expect(execaMock).toHaveBeenCalledWith('ffmpeg', [
+        '-y',
+        '-i',
+        '/input/video.mp4',
+        '-vn',
+        '-acodec',
+        'pcm_s16le',
+        '-ar',
+        '16000',
+        '-ac',
+        '1',
+        audioPath
+      ]);
+    } finally {
+      await rm(dataDir, { force: true, recursive: true });
+    }
   });
 });
 
@@ -527,6 +566,36 @@ describe('createOpenAiCompatibleProvider', () => {
     }
   });
 
+  it('throws TranscriptionUnsupportedError for missing transcription endpoints', async () => {
+    const audioPath = path.join(await mkdtemp(path.join(os.tmpdir(), 'ai-provider-')), 'audio.wav');
+    const json = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await writeFile(audioPath, 'fake audio');
+      const provider = createOpenAiCompatibleProvider({
+        baseUrl: 'https://example.test/v1',
+        apiKey: 'test-key',
+        visionModel: 'vision-model',
+        transcribeModel: 'transcribe-model'
+      });
+
+      await expect(provider.transcribeAudio({ audioPath })).rejects.toMatchObject({
+        name: 'TranscriptionUnsupportedError',
+        status: 404
+      });
+      expect(json).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      await rm(path.dirname(audioPath), { force: true, recursive: true });
+    }
+  });
+
   it('throws with status for non-ok transcription responses before parsing JSON', async () => {
     const audioPath = path.join(await mkdtemp(path.join(os.tmpdir(), 'ai-provider-')), 'audio.wav');
     const json = vi.fn();
@@ -580,6 +649,47 @@ describe('createOpenAiCompatibleProvider', () => {
     } finally {
       vi.unstubAllGlobals();
       await rm(path.dirname(audioPath), { force: true, recursive: true });
+    }
+  });
+});
+
+describe('processAnalysisJob ai_transcript', () => {
+  it('completes with empty transcripts when transcription reports no speech', async () => {
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), 'ai-media-pipeline-'));
+    const db = openDatabase(path.join(tempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    try {
+      const source = repos.sources.upsertSource({ name: 'Factory', rootPath: '/tmp/factory' });
+      const asset = repos.assets.upsertAsset({
+        sourceId: source.id,
+        path: '/tmp/factory/voiceless.wav',
+        fileName: 'voiceless.wav',
+        kind: 'audio',
+        extension: '.wav',
+        sizeBytes: 12,
+        hash: 'voiceless',
+        modifiedAt: '2026-05-25T00:00:00.000Z'
+      });
+      const [job] = repos.jobs.ensureJobs(asset.id, ['ai_transcript']);
+
+      const result = await processAnalysisJob(job, {
+        repos,
+        dataDir: tempDir,
+        frameMode: 'balanced',
+        aiProvider: {
+          analyzeImage: vi.fn(),
+          transcribeAudio: vi.fn(async () => {
+            throw new TranscriptionNoSpeechError('SUCCESS_WITH_NO_VALID_FRAGMENT');
+          })
+        }
+      });
+
+      expect(result).toEqual({ status: 'done' });
+      expect(repos.transcripts.listForAsset(asset.id)).toEqual([]);
+    } finally {
+      db.close();
+      rmSync(tempDir, { recursive: true, force: true });
     }
   });
 });

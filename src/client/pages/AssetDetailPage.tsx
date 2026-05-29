@@ -86,7 +86,7 @@ export function AssetDetailPage(): React.JSX.Element {
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-white text-muted-foreground">
+      <div className="flex-1 flex items-center justify-center bg-background text-muted-foreground">
         加载素材详情…
       </div>
     );
@@ -94,9 +94,9 @@ export function AssetDetailPage(): React.JSX.Element {
 
   if (!detail) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-white">
+      <div className="flex-1 flex items-center justify-center bg-background">
         <div className="text-center">
-          <p className="text-gray-600">素材不存在</p>
+          <p className="text-muted-foreground">素材不存在</p>
           <Button type="button" onClick={() => navigate('/')} className="mt-4">
             返回素材库
           </Button>
@@ -106,6 +106,7 @@ export function AssetDetailPage(): React.JSX.Element {
   }
 
   const { asset, tags, frames, transcripts, jobs } = detail;
+  const transcriptDoneWithoutSpeech = isTranscriptDoneWithoutSpeech(detail);
   const precisionJobsPending = jobs.some(
     (job) => (job.stage === 'frames' || job.stage === 'ai_vision') && job.status === 'pending'
   );
@@ -123,7 +124,7 @@ export function AssetDetailPage(): React.JSX.Element {
     asset.kind !== 'video' || actionBusy !== null || precisionBusy || precisionActive;
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-white min-h-0">
+    <div className="flex-1 flex flex-col h-full bg-background min-h-0">
       <div className="border-b px-6 py-4 shrink-0">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" type="button" onClick={() => navigate('/')}>
@@ -132,8 +133,8 @@ export function AssetDetailPage(): React.JSX.Element {
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <FileKindIcon kind={asset.kind} />
             <div className="flex-1 min-w-0">
-              <h1 className="font-semibold text-lg text-gray-900 truncate">{asset.fileName}</h1>
-              <p className="text-sm text-gray-600 truncate">{asset.path}</p>
+              <h1 className="font-semibold text-lg text-foreground truncate">{asset.fileName}</h1>
+              <p className="text-sm text-muted-foreground truncate">{asset.path}</p>
             </div>
           </div>
         </div>
@@ -155,7 +156,7 @@ export function AssetDetailPage(): React.JSX.Element {
                     <img
                       src={zoomedFrame.url}
                       alt=""
-                      className="w-full max-h-[70vh] object-contain rounded-md bg-gray-100"
+                      className="w-full max-h-[70vh] object-contain rounded-md bg-muted"
                     />
                   </div>
                 </>
@@ -166,7 +167,7 @@ export function AssetDetailPage(): React.JSX.Element {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
               <div className="border rounded-lg p-6">
-                <h2 className="font-semibold text-gray-900 mb-4">文件信息</h2>
+                <h2 className="font-semibold text-foreground mb-4">文件信息</h2>
                 <div className="space-y-3">
                   <InfoRow icon={HardDrive} label="大小" value={formatFileSize(asset.sizeBytes)} />
                   {asset.durationSeconds ? (
@@ -178,7 +179,7 @@ export function AssetDetailPage(): React.JSX.Element {
               </div>
 
               <div className="border rounded-lg p-6">
-                <h2 className="font-semibold text-gray-900 mb-4">标签</h2>
+                <h2 className="font-semibold text-foreground mb-4">标签</h2>
                 {tags.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
                     {tags.map((tag) => (
@@ -197,9 +198,9 @@ export function AssetDetailPage(): React.JSX.Element {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-500">暂无标签</p>
+                  <p className="text-sm text-muted-foreground">暂无标签</p>
                 )}
-                <p className="text-xs text-gray-500 mt-4">AI 标签可能不完全准确，支持手动修正</p>
+                <p className="text-xs text-muted-foreground mt-4">AI 标签可能不完全准确，支持手动修正</p>
               </div>
 
               {asset.kind === 'video' ? (
@@ -223,7 +224,7 @@ export function AssetDetailPage(): React.JSX.Element {
                               <div key={frame.id} className="border rounded-lg overflow-hidden">
                                 <button
                                   type="button"
-                                  className="aspect-video bg-gray-100 w-full block cursor-zoom-in disabled:cursor-default"
+                                  className="aspect-video bg-muted w-full block cursor-zoom-in disabled:cursor-default"
                                   disabled={!frameThumb}
                                   onClick={() => {
                                     if (frameThumb) {
@@ -244,7 +245,7 @@ export function AssetDetailPage(): React.JSX.Element {
                                 </button>
                                 <div className="p-3">
                                   <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm font-medium text-gray-900">
+                                    <span className="text-sm font-medium text-foreground">
                                       {formatDuration(frame.timestampSeconds)}
                                     </span>
                                   </div>
@@ -269,7 +270,7 @@ export function AssetDetailPage(): React.JSX.Element {
                           })}
                         </div>
                       ) : (
-                        <p className="text-sm text-gray-500 text-center py-8">暂无关键帧数据</p>
+                        <p className="text-sm text-muted-foreground text-center py-8">暂无关键帧数据</p>
                       )}
                     </TabsContent>
 
@@ -281,18 +282,20 @@ export function AssetDetailPage(): React.JSX.Element {
                               <Badge variant="outline" className="text-xs">
                                 {languageLabel(segment.language)}
                               </Badge>
-                              <span className="text-xs text-gray-500">
+                              <span className="text-xs text-muted-foreground">
                                 {formatDuration(segment.startSeconds)} - {formatDuration(segment.endSeconds)}
                               </span>
                             </div>
-                            <p className="text-sm mb-2 text-gray-900">{segment.text}</p>
+                            <p className="text-sm mb-2 text-foreground">{segment.text}</p>
                             {segment.translation ? (
-                              <p className="text-sm text-gray-600 italic">翻译: {segment.translation}</p>
+                              <p className="text-sm text-muted-foreground italic">翻译: {segment.translation}</p>
                             ) : null}
                           </div>
                         ))
+                      ) : transcriptDoneWithoutSpeech ? (
+                        <p className="text-sm text-muted-foreground text-center py-8">转写已完成，未检测到有效语音</p>
                       ) : (
-                        <p className="text-sm text-gray-500 text-center py-8">暂无字幕数据</p>
+                        <p className="text-sm text-muted-foreground text-center py-8">暂无字幕数据</p>
                       )}
                     </TabsContent>
                   </Tabs>
@@ -302,7 +305,7 @@ export function AssetDetailPage(): React.JSX.Element {
 
             <div className="space-y-4">
               <div className="border rounded-lg p-4 space-y-3">
-                <h2 className="font-semibold text-gray-900">操作</h2>
+                <h2 className="font-semibold text-foreground">操作</h2>
                 <Button
                   variant="outline"
                   type="button"
@@ -379,7 +382,7 @@ function AssetPreview({ asset }: { asset: Asset }): React.JSX.Element {
   const thumbnailUrl = getAssetThumbnailUrl(asset.id, asset.thumbnailPath);
 
   return (
-    <div className="rounded-lg overflow-hidden bg-gray-100">
+    <div className="rounded-lg overflow-hidden bg-muted">
       <div className="aspect-video flex items-center justify-center">
         {asset.kind === 'video' ? (
           <video
@@ -440,9 +443,9 @@ function InfoRow({
 }): React.JSX.Element {
   return (
     <div className="flex items-center gap-3 text-sm">
-      <Icon className="size-4 text-gray-400 shrink-0" />
-      <span className="text-gray-600 w-20 shrink-0">{label}:</span>
-      <span className="text-gray-900">{value}</span>
+      <Icon className="size-4 text-muted-foreground shrink-0" />
+      <span className="text-muted-foreground w-20 shrink-0">{label}:</span>
+      <span className="text-foreground">{value}</span>
     </div>
   );
 }
@@ -496,6 +499,14 @@ async function handlePrecisionAnalyze(
   } finally {
     setActionBusy(null);
   }
+}
+
+function isTranscriptDoneWithoutSpeech(detail: AssetDetailResponse): boolean {
+  if (detail.transcripts.length > 0 || detail.asset.kind === 'image') {
+    return false;
+  }
+
+  return detail.jobs.some((job) => job.stage === 'ai_transcript' && job.status === 'done');
 }
 
 async function copyPath(path: string): Promise<void> {

@@ -46,7 +46,12 @@ describe('settings API', () => {
       aiProviderName: 'mock',
       dailyBudgetYuan: 50,
       concurrentTasks: 3,
-      apiKeyConfigured: false
+      apiKeyConfigured: false,
+      transcriptionMode: 'auto',
+      fallbackTranscribeProvider: 'dashscope-asr',
+      fallbackTranscribeEndpoint: 'https://dashscope.aliyuncs.com/api/v1',
+      fallbackTranscribeModel: 'qwen3-asr-flash-filetrans',
+      fallbackTranscribeApiKeyConfigured: false
     });
 
     const patched = await request(app)
@@ -58,7 +63,12 @@ describe('settings API', () => {
         apiEndpoint: 'https://example.com/v1',
         apiKey: 'sk-test-key',
         openAiVisionModel: 'gpt-4o-mini',
-        openAiTranscribeModel: 'whisper-1'
+        openAiTranscribeModel: 'whisper-1',
+        transcriptionMode: 'auto',
+        fallbackTranscribeProvider: 'dashscope-asr',
+        fallbackTranscribeEndpoint: 'https://dashscope.aliyuncs.com/api/v1',
+        fallbackTranscribeModel: 'qwen3-asr-flash-filetrans',
+        fallbackTranscribeApiKey: 'sk-dashscope'
       })
       .expect(200);
 
@@ -68,7 +78,12 @@ describe('settings API', () => {
       apiEndpoint: 'https://example.com/v1',
       apiKeyConfigured: true,
       openAiVisionModel: 'gpt-4o-mini',
-      openAiTranscribeModel: 'whisper-1'
+      openAiTranscribeModel: 'whisper-1',
+      transcriptionMode: 'auto',
+      fallbackTranscribeProvider: 'dashscope-asr',
+      fallbackTranscribeEndpoint: 'https://dashscope.aliyuncs.com/api/v1',
+      fallbackTranscribeModel: 'qwen3-asr-flash-filetrans',
+      fallbackTranscribeApiKeyConfigured: true
     });
 
     const reloaded = await request(app).get('/api/settings').expect(200);
@@ -98,6 +113,28 @@ describe('settings API', () => {
       provider: 'openai-compatible',
       message: expect.stringContaining('AI_OPENAI_TRANSCRIBE_MODEL')
     });
+  });
+
+  it('reports generated cache size and clears cache buckets', async () => {
+    const { dataDir } = createTempSource();
+    const app = createTestApp(dataDir);
+    const framesDir = path.join(dataDir, 'frames', 'asset-a');
+    mkdirSync(framesDir, { recursive: true });
+    writeFileSync(path.join(framesDir, 'frame.jpg'), '12345');
+
+    const statsResponse = await request(app).get('/api/system/cache').expect(200);
+    expect(statsResponse.body.cache).toMatchObject({
+      totalBytes: 5,
+      buckets: expect.arrayContaining([
+        expect.objectContaining({ name: 'frames', bytes: 5, fileCount: 1 })
+      ])
+    });
+
+    const clearResponse = await request(app).post('/api/system/cache/clear').expect(200);
+    expect(clearResponse.body.cache.totalBytes).toBe(0);
+
+    const afterClear = await request(app).get('/api/system/cache').expect(200);
+    expect(afterClear.body.cache.totalBytes).toBe(0);
   });
 
   it('tests mock AI connectivity without calling external APIs', async () => {

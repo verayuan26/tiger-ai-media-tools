@@ -69,7 +69,7 @@ export function LibraryPage(): React.JSX.Element {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full min-h-0 bg-white">
+    <div className="flex-1 flex flex-col h-full min-h-0 bg-background">
       <LibraryFilterBar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}

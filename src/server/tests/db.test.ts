@@ -143,7 +143,16 @@ describe('database schema', () => {
         .prepare('select version from schema_migrations order by version')
         .all();
 
-      expect(rows).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }]);
+      expect(rows).toEqual([
+        { version: 1 },
+        { version: 2 },
+        { version: 3 },
+        { version: 4 },
+        { version: 5 },
+        { version: 6 },
+        { version: 7 },
+        { version: 8 }
+      ]);
     } finally {
       second.close();
     }
@@ -306,6 +315,43 @@ describe('repositories', () => {
     }
   });
 
+  it('matches assets by partial tag names in free-text query', () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
+    const db = openDatabase(path.join(tempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    try {
+      const source = repos.sources.upsertSource({ name: 'Factory', rootPath: '/tmp/factory' });
+      const taggedAsset = repos.assets.upsertAsset({
+        sourceId: source.id,
+        path: '/tmp/factory/cut.mp4',
+        fileName: 'cut.mp4',
+        kind: 'video',
+        extension: '.mp4',
+        sizeBytes: 12,
+        hash: 'hash-1',
+        modifiedAt: '2026-05-25T00:00:00.000Z'
+      });
+      repos.assets.upsertAsset({
+        sourceId: source.id,
+        path: '/tmp/factory/other.mp4',
+        fileName: 'other.mp4',
+        kind: 'video',
+        extension: '.mp4',
+        sizeBytes: 12,
+        hash: 'hash-2',
+        modifiedAt: '2026-05-25T00:00:00.000Z'
+      });
+      repos.tags.assignAssetTag(taggedAsset.id, '裁剪布料', 'ai', 0.91);
+
+      expect(repos.assets.searchAssets({ query: '裁剪' }).map((asset) => asset.fileName)).toEqual(['cut.mp4']);
+      expect(repos.assets.searchAssets({ query: '布料' }).map((asset) => asset.fileName)).toEqual(['cut.mp4']);
+      expect(repos.assets.searchAssets({ query: 'other' }).map((asset) => asset.fileName)).toEqual(['other.mp4']);
+    } finally {
+      db.close();
+    }
+  });
+
   it('keeps job creation idempotent and claims pending jobs atomically', () => {
     tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
     const db = openDatabase(path.join(tempDir, 'library.sqlite'));
@@ -386,6 +432,41 @@ describe('repositories', () => {
       expect(repos.jobs.listForAsset(asset.id).map((job) => job.id)).toEqual(['job-a', 'job-b']);
       expect(repos.jobs.nextPending()?.id).toBe('job-a');
       expect(repos.jobs.claimNextPending()?.id).toBe('job-a');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('does not claim later stages while an earlier stage is still processing', () => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'ai-media-repo-'));
+    const db = openDatabase(path.join(tempDir, 'library.sqlite'));
+    const repos = createRepositories(db);
+
+    try {
+      const source = repos.sources.upsertSource({ name: 'Factory', rootPath: '/tmp/factory' });
+      const asset = repos.assets.upsertAsset({
+        sourceId: source.id,
+        path: '/tmp/factory/cut.mp4',
+        fileName: 'cut.mp4',
+        kind: 'video',
+        extension: '.mp4',
+        sizeBytes: 12,
+        hash: 'abc',
+        modifiedAt: '2026-05-25T00:00:00.000Z'
+      });
+      const insert = db.prepare(
+        `insert into analysis_jobs
+          (id, asset_id, stage, status, attempts, error_message, created_at, updated_at)
+         values (?, ?, ?, 'pending', 0, null, ?, ?)`
+      );
+
+      insert.run('job-audio', asset.id, 'audio', NOW, NOW);
+      insert.run('job-transcript', asset.id, 'ai_transcript', NOW, NOW);
+
+      const audioJob = repos.jobs.claimNextPending();
+      expect(audioJob).toMatchObject({ stage: 'audio', status: 'processing' });
+      expect(repos.jobs.claimNextPending()).toBeNull();
+      expect(repos.jobs.nextPending()?.stage).toBe('ai_transcript');
     } finally {
       db.close();
     }

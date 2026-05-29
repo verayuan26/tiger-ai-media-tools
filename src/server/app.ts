@@ -3,6 +3,7 @@ import cors from 'cors';
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
 import { ZodError } from 'zod';
 import { createApiRouter, HttpError } from './api/routes';
+import { loadTranscriptionModeFromEnv } from './ai/withTranscriptionFallback';
 import { loadConfig, type ConfigOverrides } from './config';
 import { openDatabase } from './db/connection';
 import { createRepositories, createSettingsRepository } from './db/repositories';
@@ -18,6 +19,18 @@ export function createApp(overrides: ConfigOverrides = {}) {
     apiKey: config.openAiApiKey,
     openAiVisionModel: config.openAiVisionModel,
     openAiTranscribeModel: config.openAiTranscribeModel,
+    transcriptionMode: loadTranscriptionModeFromEnv(),
+    fallbackTranscribeProvider:
+      (process.env.AI_FALLBACK_TRANSCRIBE_PROVIDER?.trim() as
+        | 'openai-compatible'
+        | 'dashscope-asr'
+        | undefined) ?? 'dashscope-asr',
+    fallbackTranscribeEndpoint:
+      process.env.AI_FALLBACK_TRANSCRIBE_ENDPOINT?.trim() ||
+      'https://dashscope.aliyuncs.com/api/v1',
+    fallbackTranscribeModel:
+      process.env.AI_FALLBACK_TRANSCRIBE_MODEL?.trim() || 'qwen3-asr-flash-filetrans',
+    fallbackTranscribeApiKey: process.env.AI_FALLBACK_TRANSCRIBE_API_KEY?.trim() || '',
     dailyBudgetYuan: Math.max(1, Math.round(Number(process.env.AI_DAILY_BUDGET_CENTS ?? 5000) / 100))
   });
   const settingsService = createSettingsService(config, settingsRepo);

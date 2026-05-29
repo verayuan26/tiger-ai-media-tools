@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react';
+import { Folder } from 'lucide-react';
+import { toast } from 'sonner';
+import { pickDirectoryFromSystem } from '../lib/pick-directory';
 import {
   Dialog,
   DialogContent,
@@ -35,6 +38,7 @@ export function EditSourceDialog({
   const [name, setName] = useState('');
   const [rootPath, setRootPath] = useState('');
   const [incrementalScanEnabled, setIncrementalScanEnabled] = useState(true);
+  const [browsing, setBrowsing] = useState(false);
 
   useEffect(() => {
     if (!source) return;
@@ -43,6 +47,27 @@ export function EditSourceDialog({
     setRootPath(source.rootPath);
     setIncrementalScanEnabled(source.incrementalScanEnabled);
   }, [source]);
+
+  async function handleBrowse(): Promise<void> {
+    setBrowsing(true);
+    try {
+      const result = await pickDirectoryFromSystem();
+      if (result.status === 'selected') {
+        setRootPath(result.path);
+        return;
+      }
+      if (result.status === 'unavailable') {
+        toast.message('无法打开系统目录选择器', {
+          description: `${result.message}。请手动粘贴绝对路径。`
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '无法打开目录选择器';
+      toast.error(message);
+    } finally {
+      setBrowsing(false);
+    }
+  }
 
   async function handleSubmit(): Promise<void> {
     if (!name.trim() || !rootPath.trim()) return;
@@ -76,20 +101,31 @@ export function EditSourceDialog({
 
           <div className="space-y-2">
             <Label htmlFor="edit-source-path">目录路径</Label>
-            <Input
-              id="edit-source-path"
-              placeholder="/Users/example/Documents/media"
-              value={rootPath}
-              onChange={(event) => setRootPath(event.target.value)}
-              className="font-mono text-sm"
-            />
-            <p className="text-xs text-gray-500">修改路径后请确认目录仍可读，必要时重新扫描</p>
+            <div className="flex gap-2">
+              <Input
+                id="edit-source-path"
+                placeholder="/Users/example/Documents/media"
+                value={rootPath}
+                onChange={(event) => setRootPath(event.target.value)}
+                className="flex-1 font-mono text-sm"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={submitting || browsing}
+                onClick={() => void handleBrowse()}
+              >
+                <Folder className="size-4 mr-2" />
+                {browsing ? '打开中…' : '浏览'}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">点击浏览重新选择目录，或手动粘贴绝对路径</p>
           </div>
 
           <div className="flex items-center justify-between p-4 border rounded-lg">
             <div>
               <p className="font-medium text-sm">监听文件变化</p>
-              <p className="text-xs text-gray-600 mt-1">关闭后该来源在侧栏会显示为未监听</p>
+              <p className="text-xs text-muted-foreground mt-1">关闭后该来源在侧栏会显示为未监听</p>
             </div>
             <Switch checked={incrementalScanEnabled} onCheckedChange={setIncrementalScanEnabled} />
           </div>
@@ -102,7 +138,6 @@ export function EditSourceDialog({
           <Button
             onClick={() => void handleSubmit()}
             disabled={!name.trim() || !rootPath.trim() || submitting}
-            className="bg-[#4a6fa5] hover:bg-[#3d5a8a]"
           >
             {submitting ? '保存中…' : '保存'}
           </Button>

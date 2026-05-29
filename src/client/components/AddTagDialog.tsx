@@ -80,7 +80,7 @@ export function AddTagDialog({
               value={normalizedName}
               onChange={(event) => setNormalizedName(event.target.value)}
             />
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-muted-foreground">
               用于合并相似标签，例如&quot;denim&quot;和&quot;牛仔布&quot;可以归为同一组
             </p>
           </div>
@@ -93,7 +93,7 @@ export function AddTagDialog({
               value={synonymsText}
               onChange={(event) => setSynonymsText(event.target.value)}
             />
-            <p className="text-xs text-gray-500">输入该标签的其他表达方式，用英文逗号分隔</p>
+            <p className="text-xs text-muted-foreground">输入该标签的其他表达方式，用英文逗号分隔</p>
           </div>
         </div>
 
@@ -104,7 +104,6 @@ export function AddTagDialog({
           <Button
             onClick={() => void handleSubmit()}
             disabled={!name.trim() || submitting}
-            className="bg-[#4a6fa5] hover:bg-[#3d5a8a]"
           >
             {submitting ? '保存中…' : '添加'}
           </Button>

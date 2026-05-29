@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { Express } from 'express';
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as pickDirectoryModule from '../media/pickDirectory';
 import * as revealModule from '../media/revealInFileManager';
 import { makeFixtures } from '../../../scripts/make-fixtures';
 import { createApp } from '../app';
@@ -141,6 +142,19 @@ describe('local API server', () => {
     expect(response.body.assets[0]).toMatchObject({ fileName: 'factory_cutting.jpg' });
   });
 
+  it('filters assets by partial tag matches in free-text query', async () => {
+    const { dataDir, sourceDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    await request(app).post('/api/sources/import').send({ rootPath: sourceDir, name: 'Factory' }).expect(200);
+    await request(app).post('/api/jobs/drain').send({ limit: 5 }).expect(200);
+
+    const response = await request(app).get('/api/assets').query({ q: '牛仔' }).expect(200);
+
+    expect(response.body.assets).toHaveLength(1);
+    expect(response.body.assets[0]).toMatchObject({ fileName: 'factory_cutting.jpg' });
+  });
+
   it('returns 404 for missing asset detail', async () => {
     const { dataDir } = createTempSource();
     const app = createTestApp(dataDir);
@@ -192,6 +206,16 @@ describe('local API server', () => {
       }
     });
     expect(retryResponse.body).not.toHaveProperty('retried');
+  });
+
+  it('rejects retry-failed when both assetId and assetIds are provided', async () => {
+    const { dataDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    await request(app)
+      .post('/api/jobs/retry-failed')
+      .send({ assetId: 'asset-1', assetIds: ['asset-2'] })
+      .expect(400);
   });
 
   it('drains jobs with the default limit when posting no body and no content type', async () => {
@@ -418,6 +442,47 @@ describe('local API server', () => {
 
     const jobsResponse = await request(app).get('/api/jobs').expect(200);
     expect(Array.isArray(jobsResponse.body.jobs)).toBe(true);
+  });
+
+  it('picks a directory for source dialogs', async () => {
+    const { dataDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    const pickSpy = vi.spyOn(pickDirectoryModule, 'pickDirectory').mockResolvedValue('/tmp/factory-media');
+
+    const response = await request(app).post('/api/system/pick-directory').expect(200);
+
+    expect(response.body).toEqual({ path: '/tmp/factory-media' });
+    expect(pickSpy).toHaveBeenCalledOnce();
+    pickSpy.mockRestore();
+  });
+
+  it('returns cancelled when directory picker is dismissed', async () => {
+    const { dataDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    const pickSpy = vi
+      .spyOn(pickDirectoryModule, 'pickDirectory')
+      .mockRejectedValue(new pickDirectoryModule.DirectoryPickerCancelledError());
+
+    const response = await request(app).post('/api/system/pick-directory').expect(200);
+
+    expect(response.body).toEqual({ cancelled: true });
+    pickSpy.mockRestore();
+  });
+
+  it('returns 503 when directory picker is unavailable', async () => {
+    const { dataDir } = createTempSource();
+    const app = createTestApp(dataDir);
+
+    const pickSpy = vi
+      .spyOn(pickDirectoryModule, 'pickDirectory')
+      .mockRejectedValue(new pickDirectoryModule.DirectoryPickerUnavailableError('zenity missing'));
+
+    const response = await request(app).post('/api/system/pick-directory').expect(503);
+
+    expect(response.body).toEqual({ error: { message: 'zenity missing' } });
+    pickSpy.mockRestore();
   });
 
   it('reveals and reanalyzes assets', async () => {

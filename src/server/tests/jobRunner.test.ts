@@ -12,6 +12,18 @@ import type { JobStage, MediaKind } from '../../shared/types';
 
 const mediaMock = vi.hoisted(() => ({
   extractAudioTrack: vi.fn(async ({ outputPath }: { outputPath: string }) => outputPath),
+  ensureTranscriptionAudioFile: vi.fn(
+    async ({
+      asset,
+      dataDir
+    }: {
+      asset: { id: string; kind: 'image' | 'video' | 'audio'; path: string };
+      dataDir: string;
+    }) => {
+      const { transcriptionAudioPath } = await import('../media/ffmpeg');
+      return transcriptionAudioPath(dataDir, asset.id);
+    }
+  ),
   extractVideoFrames: vi.fn(),
   probeMedia: vi.fn()
 }));
@@ -21,6 +33,7 @@ vi.mock('../media/ffmpeg', async (importOriginal) => {
   return {
     ...actual,
     extractAudioTrack: mediaMock.extractAudioTrack,
+    ensureTranscriptionAudioFile: mediaMock.ensureTranscriptionAudioFile,
     extractVideoFrames: mediaMock.extractVideoFrames,
     probeMedia: mediaMock.probeMedia
   };
@@ -31,6 +44,19 @@ let tempDir: string | null = null;
 beforeEach(() => {
   mediaMock.extractAudioTrack.mockReset();
   mediaMock.extractAudioTrack.mockImplementation(async ({ outputPath }: { outputPath: string }) => outputPath);
+  mediaMock.ensureTranscriptionAudioFile.mockReset();
+  mediaMock.ensureTranscriptionAudioFile.mockImplementation(
+    async ({
+      asset,
+      dataDir
+    }: {
+      asset: { id: string; kind: 'image' | 'video' | 'audio'; path: string };
+      dataDir: string;
+    }) => {
+      const { transcriptionAudioPath } = await import('../media/ffmpeg');
+      return transcriptionAudioPath(dataDir, asset.id);
+    }
+  );
   mediaMock.extractVideoFrames.mockReset();
   mediaMock.probeMedia.mockReset();
 });
@@ -276,6 +302,49 @@ describe('job runner', () => {
       expect(frames).toHaveLength(1);
       const frameTags = repos.tags.listForFrames(frames.map((frame) => frame.id));
       expect(frameTags.get(frames[0].id)).toEqual([{ displayName: '缝纫机' }]);
+    } finally {
+      closeDb(db);
+    }
+  });
+
+  it('does not start transcription while audio extraction is still running concurrently', async () => {
+    let releaseAudio: (() => void) | undefined;
+    const audioStarted = new Promise<void>((resolve) => {
+      mediaMock.extractAudioTrack.mockImplementation(async ({ outputPath }: { outputPath: string }) => {
+        resolve();
+        await new Promise<void>((done) => {
+          releaseAudio = done;
+        });
+        return outputPath;
+      });
+    });
+
+    const transcribeAudio = vi.fn(async () => ({ segments: [] }));
+    const { db, repos, context } = createTestContext({
+      analyzeImage: vi.fn(async () => ({ tags: [] })),
+      transcribeAudio
+    });
+
+    try {
+      mediaMock.probeMedia.mockResolvedValue({ durationSeconds: 12, width: 1280, height: 720 });
+      mediaMock.extractVideoFrames.mockResolvedValue([
+        { timestampSeconds: 0, thumbnailPath: '/tmp/factory-tour-0.jpg' }
+      ]);
+
+      const asset = createAsset(repos, {
+        fileName: 'factory-tour.mp4',
+        kind: 'video',
+        path: '/tmp/factory/factory-tour.mp4',
+        extension: '.mp4'
+      });
+      repos.jobs.ensureJobs(asset.id, ['metadata', 'thumbnail', 'frames', 'audio', 'ai_vision', 'ai_transcript']);
+
+      const drainPromise = drainQueue(context, { limit: 10, maxConcurrent: 3 });
+      await audioStarted;
+      expect(transcribeAudio).not.toHaveBeenCalled();
+      releaseAudio?.();
+      await expect(drainPromise).resolves.toBe(6);
+      expect(transcribeAudio).toHaveBeenCalledTimes(1);
     } finally {
       closeDb(db);
     }

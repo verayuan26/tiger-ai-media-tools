@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises';
+import { access, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { execa } from 'execa';
 import { planFrameTimestamps } from './framePlan';
@@ -111,6 +111,27 @@ export function resolveTranscriptionAudioPath(
   }
 
   return asset.path;
+}
+
+export async function ensureTranscriptionAudioFile(input: {
+  asset: { id: string; kind: 'image' | 'video' | 'audio'; path: string };
+  dataDir: string;
+}): Promise<string> {
+  const audioPath = resolveTranscriptionAudioPath(input.asset, input.dataDir);
+  if (input.asset.kind !== 'video') {
+    return audioPath;
+  }
+
+  try {
+    await access(audioPath);
+  } catch {
+    await extractAudioTrack({
+      filePath: input.asset.path,
+      outputPath: audioPath
+    });
+  }
+
+  return audioPath;
 }
 
 export async function extractAudioTrack(input: {

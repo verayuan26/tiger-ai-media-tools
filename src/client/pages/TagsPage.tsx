@@ -152,8 +152,8 @@ export function TagsPage(): React.JSX.Element {
           <div className="space-y-6">
             <Card className="p-5">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="font-semibold text-gray-900">主题集合</h2>
-                <Button size="sm" className="bg-[#4a6fa5] hover:bg-[#3d5a8a]" onClick={() => setAddThemeDialogOpen(true)}>
+                <h2 className="font-semibold text-foreground">主题集合</h2>
+                <Button size="sm" onClick={() => setAddThemeDialogOpen(true)}>
                   <Plus className="size-4 mr-1" />
                   新建
                 </Button>
@@ -168,19 +168,19 @@ export function TagsPage(): React.JSX.Element {
 
               <div className="space-y-2">
                 {loading ? (
-                  <p className="text-sm text-gray-600 py-2">加载主题集合…</p>
+                  <p className="text-sm text-muted-foreground py-2">加载主题集合…</p>
                 ) : sources.length === 0 ? (
-                  <p className="text-sm text-gray-600">暂无主题集合，点击「新建」导入素材目录。</p>
+                  <p className="text-sm text-muted-foreground">暂无主题集合，点击「新建」导入素材目录。</p>
                 ) : (
                   sources.map((source) => (
                     <button
                       key={source.id}
                       type="button"
-                      className="w-full flex items-center justify-between p-3 rounded-lg border hover:bg-gray-50 transition-colors text-left"
+                      className="w-full flex items-center justify-between p-3 rounded-lg border hover:bg-muted transition-colors text-left"
                     >
                       <div className="flex items-center gap-2 min-w-0">
-                        <Folder className="size-4 text-gray-600 shrink-0" />
-                        <span className="text-sm font-medium text-gray-900 truncate">{source.name}</span>
+                        <Folder className="size-4 text-muted-foreground shrink-0" />
+                        <span className="text-sm font-medium text-foreground truncate">{source.name}</span>
                       </div>
                       <Badge variant="outline">{source.assetCount}</Badge>
                     </button>
@@ -192,18 +192,18 @@ export function TagsPage(): React.JSX.Element {
             {aiRecommendedTags.length > 0 ? (
               <Card className="p-5">
                 <div className="flex items-center gap-2 mb-4">
-                  <Sparkles className="size-4 text-purple-600" />
-                  <h2 className="font-semibold text-gray-900">AI 推荐主题</h2>
+                  <Sparkles className="size-4 text-primary" />
+                  <h2 className="font-semibold text-foreground">AI 推荐主题</h2>
                 </div>
 
-                <p className="text-sm text-gray-600 mb-4">需要确认后归类到主题集合</p>
+                <p className="text-sm text-muted-foreground mb-4">需要确认后归类到主题集合</p>
 
                 <div className="space-y-2">
                   {aiRecommendedTags.map((tag) => (
-                    <div key={tag.id} className="p-3 rounded-lg border border-purple-200 bg-purple-50">
+                    <div key={tag.id} className="p-3 rounded-lg border bg-muted/40">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium text-gray-900">{tag.displayName}</span>
-                        <Badge variant="outline" className="bg-white">
+                        <span className="text-sm font-medium text-foreground">{tag.displayName}</span>
+                        <Badge variant="outline" className="bg-background">
                           {tag.assetCount}
                         </Badge>
                       </div>
@@ -225,7 +225,7 @@ export function TagsPage(): React.JSX.Element {
           <div className="lg:col-span-2">
             <Card className="p-5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                <h2 className="font-semibold text-gray-900">标签管理</h2>
+                <h2 className="font-semibold text-foreground">标签管理</h2>
                 <div className="flex gap-2">
                   <Input
                     placeholder="搜索标签..."
@@ -233,11 +233,7 @@ export function TagsPage(): React.JSX.Element {
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                   />
-                  <Button
-                    size="sm"
-                    className="bg-[#4a6fa5] hover:bg-[#3d5a8a]"
-                    onClick={() => setAddTagDialogOpen(true)}
-                  >
+                  <Button size="sm" onClick={() => setAddTagDialogOpen(true)}>
                     <Plus className="size-4 mr-1" />
                     添加标签
                   </Button>
@@ -266,13 +262,13 @@ export function TagsPage(): React.JSX.Element {
                   <TableBody>
                     {loading ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center text-sm text-gray-600 py-8">
+                        <TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-8">
                           加载标签…
                         </TableCell>
                       </TableRow>
                     ) : filteredTags.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center text-sm text-gray-600 py-8">
+                        <TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-8">
                           暂无标签
                         </TableCell>
                       </TableRow>
@@ -296,7 +292,7 @@ export function TagsPage(): React.JSX.Element {
                                 ) : null}
                               </div>
                             </TableCell>
-                            <TableCell className="text-gray-600">{tag.normalizedName}</TableCell>
+                            <TableCell className="text-muted-foreground">{tag.normalizedName}</TableCell>
                             <TableCell>
                               <Badge
                                 variant={
@@ -308,9 +304,9 @@ export function TagsPage(): React.JSX.Element {
                             </TableCell>
                             <TableCell>
                               {tag.maxConfidence !== null ? (
-                                <span className="text-sm text-gray-600">{Math.round(tag.maxConfidence * 100)}%</span>
+                                <span className="text-sm text-muted-foreground">{Math.round(tag.maxConfidence * 100)}%</span>
                               ) : (
-                                <span className="text-sm text-gray-400">—</span>
+                                <span className="text-sm text-muted-foreground">—</span>
                               )}
                             </TableCell>
                             <TableCell>
@@ -337,9 +333,9 @@ export function TagsPage(): React.JSX.Element {
                 </Table>
               </div>
 
-              <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm font-medium text-blue-900 mb-1">同义词归并</p>
-                <p className="text-sm text-blue-800">
+              <div className="mt-4 p-4 bg-muted border border-border rounded-lg">
+                <p className="text-sm font-medium text-foreground mb-1">同义词归并</p>
+                <p className="text-sm text-muted-foreground">
                   系统会自动将相似标签（如&quot;牛仔布&quot;、&quot;denim fabric&quot;、&quot;denim&quot;）归并到同一标签组，
                   减少重复标签并提高搜索准确性。
                 </p>

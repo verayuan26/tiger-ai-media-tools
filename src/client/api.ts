@@ -18,6 +18,7 @@ import type {
   TestAiConnectionInput,
   TestAiConnectionResult
 } from '../shared/settings';
+import type { CacheStats } from '../shared/cache';
 
 export interface AssetDetailTag {
   displayName: string;
@@ -185,6 +186,18 @@ export async function patchSettings(input: AppSettingsPatch): Promise<AppSetting
   return response.settings;
 }
 
+export async function getCacheStats(): Promise<CacheStats> {
+  const response = await request<{ cache: CacheStats }>('/api/system/cache');
+  return response.cache;
+}
+
+export async function clearGeneratedCache(): Promise<CacheStats> {
+  const response = await request<{ cache: CacheStats }>('/api/system/cache/clear', {
+    method: 'POST'
+  });
+  return response.cache;
+}
+
 export async function testAiConnection(input: TestAiConnectionInput = {}): Promise<TestAiConnectionResult> {
   const response = await fetch('/api/settings/test-ai', {
     method: 'POST',
@@ -217,10 +230,16 @@ export async function drainJobs(limit = 10): Promise<DrainJobsResponse> {
   return payload as DrainJobsResponse;
 }
 
-export async function retryFailed(assetId?: string): Promise<RetryFailedResponse> {
+export async function retryFailed(assetId?: string, assetIds?: string[]): Promise<RetryFailedResponse> {
+  const body =
+    assetIds && assetIds.length > 0
+      ? { assetIds }
+      : assetId
+        ? { assetId }
+        : {};
   return request<RetryFailedResponse>('/api/jobs/retry-failed', {
     method: 'POST',
-    body: JSON.stringify(assetId ? { assetId } : {})
+    body: JSON.stringify(body)
   });
 }
 

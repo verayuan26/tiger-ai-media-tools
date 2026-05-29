@@ -1,5 +1,16 @@
+import type { FallbackTranscriptionConfig } from '../ai/transcriptionFallbackConfig';
+import { parseFallbackTranscribeProvider } from '../ai/transcriptionFallbackConfig';
+import { normalizeOpenAiCompatibleBaseUrl } from '../ai/openAiCompatibleProvider';
+import { normalizeDashScopeApiBaseUrl } from '../ai/dashscopeAsrProvider';
 import type { LibraryDatabase } from './connection';
-import type { AiProviderName, ApiProtocol, AppSettings, AppSettingsPatch } from '../../shared/settings';
+import type {
+  AiProviderName,
+  ApiProtocol,
+  AppSettings,
+  AppSettingsPatch,
+  FallbackTranscribeProvider,
+  TranscriptionMode
+} from '../../shared/settings';
 import { nowIso } from './repositories';
 
 const SETTINGS_ID = 'default';
@@ -12,6 +23,11 @@ export interface SettingsSeed {
   apiKey: string;
   openAiVisionModel: string;
   openAiTranscribeModel: string;
+  transcriptionMode?: TranscriptionMode;
+  fallbackTranscribeProvider?: FallbackTranscribeProvider;
+  fallbackTranscribeEndpoint?: string;
+  fallbackTranscribeModel?: string;
+  fallbackTranscribeApiKey?: string;
   dailyBudgetYuan: number;
 }
 
@@ -35,6 +51,10 @@ export function createSettingsRepository(db: LibraryDatabase, seed: SettingsSeed
       const current = readRow(db);
       const nextApiKey =
         input.apiKey !== undefined ? input.apiKey.trim() : String(current.api_key ?? '');
+      const nextFallbackApiKey =
+        input.fallbackTranscribeApiKey !== undefined
+          ? input.fallbackTranscribeApiKey.trim()
+          : String(current.fallback_transcribe_api_key ?? '');
 
       db.prepare(
         `update app_settings
@@ -44,6 +64,11 @@ export function createSettingsRepository(db: LibraryDatabase, seed: SettingsSeed
              ai_provider_name = ?,
              open_ai_vision_model = ?,
              open_ai_transcribe_model = ?,
+             transcription_mode = ?,
+             fallback_transcribe_provider = ?,
+             fallback_transcribe_endpoint = ?,
+             fallback_transcribe_model = ?,
+             fallback_transcribe_api_key = ?,
              daily_budget_yuan = ?,
              concurrent_tasks = ?,
              precision_mode_default = ?,
@@ -61,6 +86,22 @@ export function createSettingsRepository(db: LibraryDatabase, seed: SettingsSeed
         input.openAiTranscribeModel !== undefined
           ? input.openAiTranscribeModel.trim()
           : String(current.open_ai_transcribe_model ?? ''),
+        input.transcriptionMode ?? String(current.transcription_mode ?? 'auto'),
+        input.fallbackTranscribeProvider !== undefined
+          ? input.fallbackTranscribeProvider
+          : parseFallbackTranscribeProvider(current.fallback_transcribe_provider),
+        input.fallbackTranscribeEndpoint !== undefined
+          ? input.fallbackTranscribeProvider === 'dashscope-asr' ||
+            parseFallbackTranscribeProvider(
+              input.fallbackTranscribeProvider ?? current.fallback_transcribe_provider
+            ) === 'dashscope-asr'
+            ? normalizeDashScopeApiBaseUrl(input.fallbackTranscribeEndpoint.trim())
+            : input.fallbackTranscribeEndpoint.trim()
+          : String(current.fallback_transcribe_endpoint ?? ''),
+        input.fallbackTranscribeModel !== undefined
+          ? input.fallbackTranscribeModel.trim()
+          : String(current.fallback_transcribe_model ?? ''),
+        nextFallbackApiKey,
         input.dailyBudgetYuan ?? Number(current.daily_budget_yuan),
         input.concurrentTasks ?? Number(current.concurrent_tasks),
         input.precisionModeDefault === undefined
@@ -92,6 +133,48 @@ export function createSettingsRepository(db: LibraryDatabase, seed: SettingsSeed
         overrides.transcribeModel?.trim() || String(row.open_ai_transcribe_model ?? '').trim();
 
       return { aiProviderName, baseUrl, apiKey, visionModel, transcribeModel };
+    },
+
+    resolveFallbackTranscribeCredentials(): FallbackTranscriptionConfig | null {
+      const row = readRow(db);
+      const provider = parseFallbackTranscribeProvider(row.fallback_transcribe_provider);
+      const transcribeModel = String(row.fallback_transcribe_model ?? '').trim();
+      const fallbackApiKey = String(row.fallback_transcribe_api_key ?? '').trim();
+
+      if (!transcribeModel) {
+        return null;
+      }
+
+      if (provider === 'dashscope-asr') {
+        if (!fallbackApiKey) {
+          return null;
+        }
+
+        return {
+          provider,
+          apiBaseUrl: normalizeDashScopeApiBaseUrl(String(row.fallback_transcribe_endpoint ?? '')),
+          apiKey: fallbackApiKey,
+          transcribeModel
+        };
+      }
+
+      const endpoint = String(row.fallback_transcribe_endpoint ?? '').trim();
+      if (!endpoint) {
+        return null;
+      }
+
+      const primaryApiKey = String(row.api_key ?? '').trim();
+      const apiKey = fallbackApiKey || primaryApiKey;
+      if (!apiKey) {
+        return null;
+      }
+
+      return {
+        provider: 'openai-compatible',
+        baseUrl: normalizeOpenAiCompatibleBaseUrl(endpoint),
+        apiKey,
+        transcribeModel
+      };
     },
 
     getConcurrentTasksLimit(): number {
@@ -132,9 +215,11 @@ function ensureRow(db: LibraryDatabase, seed: SettingsSeed): void {
     `insert into app_settings (
        id, api_protocol, api_endpoint, api_key, ai_provider_name,
        open_ai_vision_model, open_ai_transcribe_model,
+       transcription_mode, fallback_transcribe_provider, fallback_transcribe_endpoint, fallback_transcribe_model,
+       fallback_transcribe_api_key,
        daily_budget_yuan, concurrent_tasks, precision_mode_default, reuse_parsed_results,
        daily_spend_cents, spend_day, updated_at
-     ) values (?, 'openai', ?, ?, ?, ?, ?, ?, 3, 0, 1, 0, ?, ?)`
+     ) values (?, 'openai', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 3, 0, 1, 0, ?, ?)`
   ).run(
     SETTINGS_ID,
     seed.apiEndpoint,
@@ -142,6 +227,11 @@ function ensureRow(db: LibraryDatabase, seed: SettingsSeed): void {
     seed.aiProviderName,
     seed.openAiVisionModel,
     seed.openAiTranscribeModel,
+    seed.transcriptionMode ?? 'auto',
+    seed.fallbackTranscribeProvider ?? 'dashscope-asr',
+    seed.fallbackTranscribeEndpoint ?? '',
+    seed.fallbackTranscribeModel ?? '',
+    seed.fallbackTranscribeApiKey ?? '',
     seed.dailyBudgetYuan,
     today,
     nowIso()
@@ -159,6 +249,7 @@ function readRow(db: LibraryDatabase): Row {
 
 function mapPublic(row: Row): AppSettings {
   const apiKey = String(row.api_key ?? '');
+  const fallbackApiKey = String(row.fallback_transcribe_api_key ?? '');
   return {
     apiProtocol: String(row.api_protocol) as ApiProtocol,
     apiEndpoint: String(row.api_endpoint),
@@ -166,6 +257,11 @@ function mapPublic(row: Row): AppSettings {
     aiProviderName: String(row.ai_provider_name) as AiProviderName,
     openAiVisionModel: String(row.open_ai_vision_model ?? ''),
     openAiTranscribeModel: String(row.open_ai_transcribe_model ?? ''),
+    transcriptionMode: parseTranscriptionMode(row.transcription_mode),
+    fallbackTranscribeProvider: parseFallbackTranscribeProvider(row.fallback_transcribe_provider),
+    fallbackTranscribeEndpoint: String(row.fallback_transcribe_endpoint ?? ''),
+    fallbackTranscribeModel: String(row.fallback_transcribe_model ?? ''),
+    fallbackTranscribeApiKeyConfigured: fallbackApiKey.length > 0,
     dailyBudgetYuan: Number(row.daily_budget_yuan),
     concurrentTasks: Number(row.concurrent_tasks),
     precisionModeDefault: Boolean(row.precision_mode_default),
@@ -194,4 +290,17 @@ function resetSpendIfNewDay(db: LibraryDatabase): void {
 
 function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function parseTranscriptionMode(value: unknown): TranscriptionMode {
+  const raw = String(value ?? 'auto');
+  if (raw === 'cloud' || raw === 'fallback' || raw === 'auto') {
+    return raw;
+  }
+
+  if (raw === 'local') {
+    return 'auto';
+  }
+
+  return 'auto';
 }

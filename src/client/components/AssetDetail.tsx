@@ -89,6 +89,8 @@ export function AssetDetail({ detail, queueSummary, loading }: AssetDetailProps)
                   </li>
                 ))}
               </ol>
+            ) : isTranscriptDoneWithoutSpeech(detail) ? (
+              <p className="mutedText">转写已完成，未检测到有效语音。</p>
             ) : (
               <p className="mutedText">暂无转写。</p>
             )}
@@ -113,6 +115,14 @@ export function AssetDetail({ detail, queueSummary, loading }: AssetDetailProps)
       )}
     </aside>
   );
+}
+
+function isTranscriptDoneWithoutSpeech(detail: AssetDetailResponse): boolean {
+  if (detail.transcripts.length > 0 || detail.asset.kind === 'image') {
+    return false;
+  }
+
+  return detail.jobs.some((job) => job.stage === 'ai_transcript' && job.status === 'done');
 }
 
 function kindLabel(kind: Asset['kind']): string {
