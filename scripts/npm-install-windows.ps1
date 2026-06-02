@@ -45,9 +45,16 @@ $env:npm_config_build_from_source = 'false'
 $env:npm_config_python = $null
 
 Write-Host '[INFO] Phase 1: install packages without native build scripts...'
-$code = Invoke-Npm -NpmArguments @('install', '--no-bin-links', '--ignore-scripts')
+$code = Invoke-Npm -NpmArguments @('install', '--no-bin-links', '--ignore-scripts', '--omit=optional')
 if ($code -ne 0) {
     Write-Host "[ERROR] npm install --ignore-scripts failed with exit code $code"
+    exit $code
+}
+
+Write-Host '[INFO] Phase 1b: install optional dependencies from package-lock (rollup/esbuild platform binaries)...'
+$code = Invoke-Npm -NpmArguments @('install', '--include=optional', '--no-bin-links', '--legacy-peer-deps')
+if ($code -ne 0) {
+    Write-Host "[ERROR] npm install --include=optional failed with exit code $code"
     exit $code
 }
 

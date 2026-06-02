@@ -44,26 +44,14 @@ function Resolve-NodeExe {
     throw 'node.exe not found in PATH'
 }
 
-function Invoke-NpmInstall {
-    param([string[]]$PackageSpecs)
-
-    if ($PackageSpecs.Count -eq 0) {
-        return 0
-    }
+function Invoke-NpmCommand {
+    param([string[]]$NpmArguments)
 
     $npmCmd = Resolve-NpmCmd
-    $display = ($PackageSpecs -join ' ')
-    Write-Host "[INFO] npm install --no-save $display"
+    $allArguments = @(Get-NpmRegistryArguments) + $NpmArguments
+    Write-Host "[INFO] npm $($allArguments -join ' ')"
 
-    $arguments = @(Get-NpmRegistryArguments) + @(
-        'install',
-        '--no-save',
-        '--no-bin-links',
-        '--ignore-scripts',
-        '--legacy-peer-deps'
-    ) + $PackageSpecs
-
-    $process = Start-Process -FilePath $npmCmd -ArgumentList $arguments -WorkingDirectory $root -Wait -PassThru -NoNewWindow
+    $process = Start-Process -FilePath $npmCmd -ArgumentList $allArguments -WorkingDirectory $root -Wait -PassThru -NoNewWindow
     return $process.ExitCode
 }
 
@@ -128,6 +116,73 @@ function Get-WindowsNativeModules {
     return $modules
 }
 
+function Get-ScopedPackageDestination {
+    param([string]$ScopedPackage)
+
+    $relative = $ScopedPackage.TrimStart('@') -replace '/', '\'
+    return Join-Path $root "node_modules\$relative"
+}
+
+function Install-ScopedPackageWithNpmPack {
+    param([string]$PackageSpec)
+
+    if ($PackageSpec -notmatch '^(@[^/]+/[^@]+)@(.+)$') {
+        Write-Host "[WARN] Invalid package spec for npm pack: $PackageSpec"
+        return 1
+    }
+
+    $scoped = $Matches[1]
+    $dest = Get-ScopedPackageDestination -ScopedPackage $scoped
+    $packDir = Join-Path $env:TEMP ("ai-media-pack-" + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Force -Path $packDir | Out-Null
+
+    try {
+        $code = Invoke-NpmCommand -NpmArguments @('pack', $PackageSpec, '--pack-destination', $packDir)
+        if ($code -ne 0) {
+            return $code
+        }
+
+        $archive = Get-ChildItem -LiteralPath $packDir -Filter '*.tgz' | Select-Object -First 1
+        if (-not $archive) {
+            Write-Host "[ERROR] npm pack produced no archive for $PackageSpec"
+            return 1
+        }
+
+        if (Test-Path -LiteralPath $dest) {
+            Remove-Item -LiteralPath $dest -Recurse -Force
+        }
+        New-Item -ItemType Directory -Force -Path $dest | Out-Null
+
+        & tar -xzf $archive.FullName -C $dest --strip-components=1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[ERROR] Failed to extract $($archive.Name) into $dest"
+            return 1
+        }
+
+        Write-Host "[INFO] Installed $scoped via npm pack into $dest"
+        return 0
+    }
+    finally {
+        Remove-Item -LiteralPath $packDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-MissingNativeModules {
+    param($NativeModules)
+
+    $missing = @()
+    foreach ($entry in $NativeModules) {
+        if (Test-NodeModuleResolvable -ModuleName $entry.Module) {
+            Write-Host "[INFO] Optional native loadable: $($entry.Module)"
+            continue
+        }
+
+        $missing += $entry
+    }
+
+    return $missing
+}
+
 if ($env:OS -notmatch 'Windows') {
     exit 0
 }
@@ -138,66 +193,43 @@ if ($nativeModules.Count -eq 0) {
     exit 0
 }
 
-$allSpecs = @($nativeModules | ForEach-Object { $_.Spec })
-$missingModules = @()
-
-foreach ($entry in $nativeModules) {
-    if (Test-NodeModuleResolvable -ModuleName $entry.Module) {
-        Write-Host "[INFO] Optional native loadable: $($entry.Module)"
-        continue
-    }
-
-    $missingModules += $entry.Module
-}
-
-if ($missingModules.Count -eq 0) {
+$missing = @(Get-MissingNativeModules -NativeModules $nativeModules)
+if ($missing.Count -eq 0) {
     exit 0
 }
 
-Write-Host "[INFO] Installing Windows optional natives in one npm command (missing: $($missingModules -join ', '))..."
-Write-Host '[INFO] npm will install rollup and esbuild platform packages together to avoid prune.'
-$code = Invoke-NpmInstall -PackageSpecs $allSpecs
+Write-Host "[INFO] Installing optional dependencies from package-lock (missing: $($missing.Module -join ', '))..."
+$code = Invoke-NpmCommand -NpmArguments @(
+    'install',
+    '--include=optional',
+    '--no-bin-links',
+    '--legacy-peer-deps'
+)
 if ($code -ne 0) {
-    Write-Host "[ERROR] Optional native install failed (exit $code)"
+    Write-Host "[ERROR] npm install --include=optional failed (exit $code)"
     exit $code
 }
 
-$stillMissing = @()
-foreach ($entry in $nativeModules) {
-    if (Test-NodeModuleResolvable -ModuleName $entry.Module) {
-        continue
-    }
-
-    $stillMissing += $entry.Module
+$missing = @(Get-MissingNativeModules -NativeModules $nativeModules)
+if ($missing.Count -eq 0) {
+    Write-Host '[INFO] Windows optional natives ready.'
+    exit 0
 }
 
-if ($stillMissing.Count -gt 0) {
-    Write-Host '[INFO] Retrying with npm install --include=optional ...'
-    $npmCmd = Resolve-NpmCmd
-    $retryArguments = @(Get-NpmRegistryArguments) + @(
-        'install',
-        '--include=optional',
-        '--no-bin-links',
-        '--ignore-scripts',
-        '--legacy-peer-deps'
-    )
-    $process = Start-Process -FilePath $npmCmd -ArgumentList $retryArguments -WorkingDirectory $root -Wait -PassThru -NoNewWindow
-    if ($process.ExitCode -ne 0) {
-        exit $process.ExitCode
-    }
-
-    $stillMissing = @()
-    foreach ($entry in $nativeModules) {
-        if (-not (Test-NodeModuleResolvable -ModuleName $entry.Module)) {
-            $stillMissing += $entry.Module
-        }
+Write-Host '[INFO] Lockfile optional install did not restore platform binaries; using npm pack fallback...'
+$exitCode = 0
+foreach ($entry in $missing) {
+    $code = Install-ScopedPackageWithNpmPack -PackageSpec $entry.Spec
+    if ($code -ne 0) {
+        $exitCode = $code
     }
 }
 
-if ($stillMissing.Count -gt 0) {
-    Write-Host "[ERROR] Still cannot load: $($stillMissing -join ', ')"
+$missing = @(Get-MissingNativeModules -NativeModules $nativeModules)
+if ($missing.Count -gt 0) {
+    Write-Host "[ERROR] Still cannot load: $($missing.Module -join ', ')"
     exit 1
 }
 
 Write-Host '[INFO] Windows optional natives ready.'
-exit 0
+exit $exitCode
