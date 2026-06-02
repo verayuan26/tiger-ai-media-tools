@@ -1,4 +1,4 @@
-import { constants } from 'node:fs';
+import { constants, createReadStream } from 'node:fs';
 import { access, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { lookup } from 'mime-types';
@@ -444,8 +444,38 @@ export function createApiRouter(context: ApiRouteContext): Router {
       }
 
       const contentType = lookup(mediaPath) || 'application/octet-stream';
-      res.type(contentType);
-      res.sendFile(mediaPath);
+
+      const fileStat = await stat(mediaPath);
+      const fileSize = fileStat.size;
+      const rangeHeader = req.headers.range;
+
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Content-Type', contentType);
+
+      if (rangeHeader) {
+        const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
+        const start = match?.[1] ? parseInt(match[1], 10) : 0;
+        const end = match?.[2] ? parseInt(match[2], 10) : fileSize - 1;
+        const clampedEnd = Math.min(end, fileSize - 1);
+        const chunkSize = clampedEnd - start + 1;
+
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${start}-${clampedEnd}/${fileSize}`);
+        res.setHeader('Content-Length', chunkSize);
+
+        const stream = createReadStream(mediaPath, { start, end: clampedEnd });
+        stream.on('error', (err) => {
+          if (!res.headersSent) next(err);
+        });
+        stream.pipe(res);
+      } else {
+        res.setHeader('Content-Length', fileSize);
+        const stream = createReadStream(mediaPath);
+        stream.on('error', (err) => {
+          if (!res.headersSent) next(err);
+        });
+        stream.pipe(res);
+      }
     })
   );
 
