@@ -3,33 +3,57 @@ param(
     [string]$ProjectRoot
 )
 
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
 
 $root = $ProjectRoot.Trim().Trim('"').TrimEnd('\', '/')
 Set-Location -LiteralPath $root
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-function Invoke-Npm {
-    param([string[]]$Args)
-    Write-Host "[INFO] npm $($Args -join ' ')"
-    & npm @Args
-    return $LASTEXITCODE
+function Resolve-NpmCmd {
+    $portable = Join-Path $env:LOCALAPPDATA 'ai-media-tools\node-x64\npm.cmd'
+    if (Test-Path -LiteralPath $portable) {
+        return $portable
+    }
+
+    $cmd = Get-Command npm.cmd -ErrorAction SilentlyContinue
+    if ($cmd) {
+        return $cmd.Source
+    }
+
+    $fallback = Get-Command npm -ErrorAction SilentlyContinue
+    if ($fallback) {
+        return $fallback.Source
+    }
+
+    throw 'npm.cmd not found in PATH'
 }
 
-# Prefer prebuilt binaries when available.
+function Invoke-Npm {
+    param([string[]]$NpmArguments)
+
+    $npmCmd = Resolve-NpmCmd
+    Write-Host "[INFO] npm $($NpmArguments -join ' ')"
+
+    & $npmCmd @NpmArguments
+    if ($null -ne $LASTEXITCODE) {
+        return [int]$LASTEXITCODE
+    }
+    return 0
+}
+
 $env:npm_config_build_from_source = 'false'
 $env:npm_config_python = $null
 
 Write-Host '[INFO] Phase 1: install packages without native build scripts...'
-$code = Invoke-Npm -Args @('install', '--no-bin-links', '--ignore-scripts')
+$code = Invoke-Npm -NpmArguments @('install', '--no-bin-links', '--ignore-scripts')
 if ($code -ne 0) {
     Write-Host "[ERROR] npm install --ignore-scripts failed with exit code $code"
     exit $code
 }
 
 Write-Host '[INFO] Phase 2: rebuild native modules including better-sqlite3...'
-$code = Invoke-Npm -Args @('rebuild')
+$code = Invoke-Npm -NpmArguments @('rebuild')
 if ($code -eq 0) {
     exit 0
 }
@@ -55,5 +79,5 @@ catch {
 }
 
 Write-Host '[INFO] Phase 3: retry npm rebuild...'
-$code = Invoke-Npm -Args @('rebuild')
+$code = Invoke-Npm -NpmArguments @('rebuild')
 exit $code
