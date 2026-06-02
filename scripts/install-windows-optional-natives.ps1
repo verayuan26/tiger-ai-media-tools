@@ -42,29 +42,34 @@ function Resolve-NodeExe {
 }
 
 function Invoke-NpmInstall {
-    param(
-        [string]$PackageSpec
-    )
+    param([string[]]$PackageSpecs)
+
+    if ($PackageSpecs.Count -eq 0) {
+        return 0
+    }
 
     $npmCmd = Resolve-NpmCmd
-    Write-Host "[INFO] npm install --no-save $PackageSpec"
+    $display = ($PackageSpecs -join ' ')
+    Write-Host "[INFO] npm install --no-save $display"
 
-    $process = Start-Process -FilePath $npmCmd -ArgumentList @(
+    $arguments = @(
         'install',
         '--no-save',
         '--no-bin-links',
         '--ignore-scripts',
-        $PackageSpec
-    ) -WorkingDirectory $root -Wait -PassThru -NoNewWindow
+        '--legacy-peer-deps'
+    ) + $PackageSpecs
 
+    $process = Start-Process -FilePath $npmCmd -ArgumentList $arguments -WorkingDirectory $root -Wait -PassThru -NoNewWindow
     return $process.ExitCode
 }
 
-function Test-ScopedPackagePresent {
-    param([string]$ScopedPackage)
+function Test-NodeModuleResolvable {
+    param([string]$ModuleName)
 
-    $relative = 'node_modules\' + ($ScopedPackage.TrimStart('@') -replace '/', '\')
-    return Test-Path -LiteralPath (Join-Path $root "$relative\package.json")
+    $nodeExe = Resolve-NodeExe
+    & $nodeExe -e "require('$ModuleName');" 2>$null
+    return $LASTEXITCODE -eq 0
 }
 
 function Get-NodeArch {
@@ -92,62 +97,102 @@ function Get-EsbuildVersion {
     return $json.version
 }
 
-function Get-WindowsNativePackageSpecs {
+function Get-WindowsNativeModules {
     $arch = Get-NodeArch
-    $specs = @()
+    $modules = @()
 
-    $rollupVersion = Get-RollupVersion
-    if ($rollupVersion) {
+    if (Get-RollupVersion) {
         $rollupNative = switch ($arch) {
             'arm64' { 'rollup-win32-arm64-msvc' }
             'ia32' { 'rollup-win32-ia32-msvc' }
             default { 'rollup-win32-x64-msvc' }
         }
-        $specs += "@rollup/$rollupNative@$rollupVersion"
+        $modules += @{
+            Module = "@rollup/$rollupNative"
+            Spec   = "@rollup/$rollupNative@$(Get-RollupVersion)"
+        }
     }
 
-    $esbuildVersion = Get-EsbuildVersion
-    if ($esbuildVersion) {
+    if (Get-EsbuildVersion) {
         $esbuildNative = switch ($arch) {
             'arm64' { 'win32-arm64' }
             default { 'win32-x64' }
         }
-        $specs += "@esbuild/$esbuildNative@$esbuildVersion"
+        $modules += @{
+            Module = "@esbuild/$esbuildNative"
+            Spec   = "@esbuild/$esbuildNative@$(Get-EsbuildVersion)"
+        }
     }
 
-    return $specs
+    return $modules
 }
 
 if ($env:OS -notmatch 'Windows') {
     exit 0
 }
 
-$specs = Get-WindowsNativePackageSpecs
-if ($specs.Count -eq 0) {
+$nativeModules = Get-WindowsNativeModules
+if ($nativeModules.Count -eq 0) {
     Write-Host '[INFO] No Windows native optional packages to install.'
     exit 0
 }
 
-$exitCode = 0
-foreach ($spec in $specs) {
-    if ($spec -notmatch '^(@[^/]+/[^@]+)@(.+)$') {
-        Write-Host "[WARN] Skipping invalid package spec: $spec"
+$missingSpecs = @()
+foreach ($entry in $nativeModules) {
+    if (Test-NodeModuleResolvable -ModuleName $entry.Module) {
+        Write-Host "[INFO] Optional native loadable: $($entry.Module)"
         continue
     }
 
-    $scoped = $Matches[1]
+    $missingSpecs += $entry.Spec
+}
 
-    if (Test-ScopedPackagePresent -ScopedPackage $scoped) {
-        Write-Host "[INFO] Optional native present: $scoped"
+if ($missingSpecs.Count -eq 0) {
+    exit 0
+}
+
+Write-Host '[INFO] Installing missing optional natives in one npm command...'
+$code = Invoke-NpmInstall -PackageSpecs $missingSpecs
+if ($code -ne 0) {
+    Write-Host "[ERROR] Optional native install failed (exit $code)"
+    exit $code
+}
+
+$stillMissing = @()
+foreach ($entry in $nativeModules) {
+    if (Test-NodeModuleResolvable -ModuleName $entry.Module) {
         continue
     }
 
-    Write-Host "[INFO] Installing missing optional native: $spec"
-    $code = Invoke-NpmInstall -PackageSpec $spec
-    if ($code -ne 0) {
-        Write-Host "[ERROR] Failed to install $spec (exit $code)"
-        $exitCode = $code
+    $stillMissing += $entry.Module
+}
+
+if ($stillMissing.Count -gt 0) {
+    Write-Host '[INFO] Retrying with npm install --include=optional ...'
+    $npmCmd = Resolve-NpmCmd
+    $process = Start-Process -FilePath $npmCmd -ArgumentList @(
+        'install',
+        '--include=optional',
+        '--no-bin-links',
+        '--ignore-scripts',
+        '--legacy-peer-deps'
+    ) -WorkingDirectory $root -Wait -PassThru -NoNewWindow
+    if ($process.ExitCode -ne 0) {
+        exit $process.ExitCode
+    }
+
+    $stillMissing = @()
+    foreach ($entry in $nativeModules) {
+        if (-not (Test-NodeModuleResolvable -ModuleName $entry.Module)) {
+            $stillMissing += $entry.Module
+        }
     }
 }
 
-exit $exitCode
+if ($stillMissing.Count -gt 0) {
+    Write-Host "[ERROR] Still cannot load: $($stillMissing -join ', ')"
+    exit 1
+}
+
+Write-Host '[INFO] Windows optional natives ready.'
+exit 0

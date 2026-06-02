@@ -51,19 +51,19 @@ function Test-WindowsRollupNative {
     if (-not $nodeExe -or -not (Test-Path -LiteralPath $nodeExe)) {
         $nodeExe = (Get-Command node -ErrorAction SilentlyContinue).Source
     }
-
-    $arch = 'x64'
-    if ($nodeExe) {
-        $arch = (& $nodeExe -p 'process.arch' 2>$null | Select-Object -First 1).Trim()
+    if (-not $nodeExe) {
+        return $false
     }
 
+    $arch = (& $nodeExe -p 'process.arch' 2>$null | Select-Object -First 1).Trim()
     $nativeName = switch ($arch) {
-        'arm64' { 'rollup-win32-arm64-msvc' }
-        'ia32' { 'rollup-win32-ia32-msvc' }
-        default { 'rollup-win32-x64-msvc' }
+        'arm64' { '@rollup/rollup-win32-arm64-msvc' }
+        'ia32' { '@rollup/rollup-win32-ia32-msvc' }
+        default { '@rollup/rollup-win32-x64-msvc' }
     }
 
-    return Test-Path -LiteralPath (Join-Path $root "node_modules\@rollup\$nativeName\package.json")
+    & $nodeExe -e "require('$nativeName');" 2>$null
+    return $LASTEXITCODE -eq 0
 }
 
 function Test-BetterSqlite3 {
