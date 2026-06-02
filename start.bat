@@ -122,45 +122,22 @@ if "!ROOT_DIR:~-1!"=="\" set "ROOT_DIR=!ROOT_DIR:~0,-1!"
 
 echo [4/4] Starting server...
 echo   URL: !APP_URL!
-echo   Logs: window titled "AI Media Server"
+echo   Press Ctrl+C to stop.
 echo.
+
+powershell -NoProfile -Command "Start-Process '!APP_URL!' -ErrorAction SilentlyContinue" >nul 2>&1
+timeout /t 2 /nobreak >nul
+start /min "" powershell -NoProfile -WindowStyle Hidden -Command "$port=!APP_PORT!; $max=90; for($i=0;$i -lt $max;$i++){Start-Sleep 1; try{$c=New-Object System.Net.Sockets.TcpClient; $c.Connect('127.0.0.1',$port); $c.Close(); Start-Process \"http://127.0.0.1:$port\"; break}catch{}}"
 
 if defined AI_MEDIA_DATA_DIR (
-  start "AI Media Server" /D "!ROOT_DIR!" cmd /k "set AI_MEDIA_DATA_DIR=!AI_MEDIA_DATA_DIR!&& set PATH=!PATH!&& npm run start"
+  set "AI_MEDIA_DATA_DIR=!AI_MEDIA_DATA_DIR!"
+  npm run start
 ) else (
-  start "AI Media Server" /D "!ROOT_DIR!" cmd /k "set PATH=!PATH!&& npm run start"
+  npm run start
 )
 
-echo Waiting for server, then opening browser...
-set /a WAIT_SEC=0
-
-:WAIT_FOR_SERVER
-timeout /t 1 /nobreak >nul
-set /a WAIT_SEC+=1
-
-powershell -NoProfile -Command "try { $c = New-Object System.Net.Sockets.TcpClient; $c.Connect('127.0.0.1', !APP_PORT!); $c.Close(); exit 0 } catch { exit 1 }"
-if not errorlevel 1 goto OPEN_BROWSER
-
-if !WAIT_SEC! lss 90 goto WAIT_FOR_SERVER
-
-echo [WARN] Timeout waiting for port !APP_PORT!. Will open browser anyway.
 echo.
-
-:OPEN_BROWSER
-echo Launching browser: !APP_URL!
-start "" "!APP_URL!"
-
-echo.
-echo ========================================
-echo   Ready
-echo ========================================
-echo   Browser: !APP_URL!
-echo   Stop: close the "AI Media Server" window.
-if defined PROJECT_SOURCE (
-  echo   Code synced from: !PROJECT_SOURCE!
-  echo   Re-run start.bat on Mac share after code changes.
-)
-echo.
+echo Server stopped.
 if /i not "%~1"=="--local-run" pause
 goto :EOF
 
