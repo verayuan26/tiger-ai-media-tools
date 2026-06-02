@@ -5,6 +5,8 @@ cd /d "%~dp0"
 
 if /i "%~1"=="--local-run" goto MAIN
 
+if /i "%AI_MEDIA_LOCAL_WORKSPACE%"=="1" goto USE_LOCAL_WORKSPACE
+
 echo %CD%| findstr /i /c:"C:\Mac\Home" >nul
 if errorlevel 1 goto MAIN
 
@@ -13,11 +15,17 @@ if "!PROJECT_SOURCE:~-1!"=="\" set "PROJECT_SOURCE=!PROJECT_SOURCE:~0,-1!"
 
 set "LOCAL_WS=%LOCALAPPDATA%\ai-media-tools\workspace"
 
+:USE_LOCAL_WORKSPACE
+if not defined PROJECT_SOURCE (
+  set "PROJECT_SOURCE=%~dp0"
+  if "!PROJECT_SOURCE:~-1!"=="\" set "PROJECT_SOURCE=!PROJECT_SOURCE:~0,-1!"
+)
+set "LOCAL_WS=%LOCALAPPDATA%\ai-media-tools\workspace"
+
 echo.
-echo [INFO] Parallels Mac shared folder detected.
-echo        npm cannot use node_modules on C:\Mac\Home\...
-echo        Syncing to local Windows workspace and starting there:
-echo        !LOCAL_WS!
+echo [INFO] Using Windows local workspace for npm.
+echo        Source: !PROJECT_SOURCE!
+echo        Workspace: !LOCAL_WS!
 echo.
 
 set "PROJECT_ROOT=!PROJECT_SOURCE!"
@@ -182,10 +190,14 @@ if exist "node_modules" (
   if errorlevel 1 exit /b 1
 )
 
-call npm install --no-bin-links
+powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\scripts\npm-install-windows.ps1" -ProjectRoot "%CD%"
+if errorlevel 1 (
+  echo [ERROR] npm install failed.
+  echo        Set AI_MEDIA_LOCAL_WORKSPACE=1 and retry, or install:
+  echo        - Python 3.12  -  VS 2022 Build Tools with C++ workload
+  exit /b 1
+)
 
-call :VERIFY_DEPS
-if errorlevel 3 call :REBUILD_SQLITE
 call :VERIFY_DEPS
 if not errorlevel 1 goto ENSURE_DEPS_DONE
 
@@ -206,16 +218,6 @@ exit /b 0
 :VERIFY_DEPS
 powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\scripts\verify-windows-deps.ps1" -ProjectRoot "%CD%"
 goto :eof
-
-:REBUILD_SQLITE
-echo [WARN] Rebuilding better-sqlite3 native module...
-call npm rebuild better-sqlite3
-if errorlevel 1 (
-  echo [WARN] rebuild failed. Trying Visual Studio C++ Build Tools...
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\scripts\install-vs-build-tools.ps1"
-  call npm rebuild better-sqlite3
-)
-exit /b 0
 
 :ENSURE_ENV
 if exist ".env" (
