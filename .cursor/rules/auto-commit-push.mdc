@@ -1,0 +1,17 @@
+---
+description: After code changes in this repo, commit and push to origin so other machines can test.
+alwaysApply: true
+---
+
+# Auto commit and push
+
+When you finish a task that changes files in this repository:
+
+1. Run `git status` and `git diff` to confirm the scope.
+2. Create a concise commit (complete sentences, focus on why).
+3. Push to `origin` on the current branch (`git push origin HEAD`).
+4. Tell the user the commit hash and that the remote is updated.
+
+Do not skip push unless the user explicitly says not to push, or push would be unsafe (e.g. force-push to main, secrets in diff).
+
+Do not amend or force-push unless the user asks.
