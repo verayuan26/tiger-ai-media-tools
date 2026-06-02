@@ -51,13 +51,6 @@ if ($code -ne 0) {
     exit $code
 }
 
-Write-Host '[INFO] Phase 1b: install optional dependencies from package-lock (rollup/esbuild platform binaries)...'
-$code = Invoke-Npm -NpmArguments @('install', '--include=optional', '--no-bin-links', '--legacy-peer-deps')
-if ($code -ne 0) {
-    Write-Host "[ERROR] npm install --include=optional failed with exit code $code"
-    exit $code
-}
-
 function Install-WindowsOptionalNatives {
     Write-Host '[INFO] Ensure Rollup/esbuild Windows optional natives...'
     & (Join-Path $here 'install-windows-optional-natives.ps1') -ProjectRoot $root | Out-Host

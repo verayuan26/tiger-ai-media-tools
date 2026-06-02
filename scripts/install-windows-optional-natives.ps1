@@ -55,11 +55,17 @@ function Invoke-NpmCommand {
     return $process.ExitCode
 }
 
-function Test-NodeModuleResolvable {
-    param([string]$ModuleName)
+function Test-NativeModulePresent {
+    param($Entry)
+
+    if ($Entry.CheckType -eq 'file') {
+        $dest = Get-ScopedPackageDestination -ScopedPackage $Entry.Module
+        $fileToCheck = Join-Path $dest $Entry.CheckFile
+        return Test-Path -LiteralPath $fileToCheck
+    }
 
     $nodeExe = Resolve-NodeExe
-    return Test-NodeCanRequire -ModuleName $ModuleName -NodeExe $nodeExe -WorkingDirectory $root
+    return Test-NodeCanRequire -ModuleName $Entry.Module -NodeExe $nodeExe -WorkingDirectory $root
 }
 
 function Get-NodeArch {
@@ -97,8 +103,9 @@ function Get-WindowsNativeModules {
             default { 'rollup-win32-x64-msvc' }
         }
         $modules += @{
-            Module = "@rollup/$rollupNative"
-            Spec   = "@rollup/$rollupNative@$(Get-RollupVersion)"
+            Module    = "@rollup/$rollupNative"
+            Spec      = "@rollup/$rollupNative@$(Get-RollupVersion)"
+            CheckType = 'require'
         }
     }
 
@@ -107,9 +114,15 @@ function Get-WindowsNativeModules {
             'arm64' { 'win32-arm64' }
             default { 'win32-x64' }
         }
+        $esbuildBin = switch ($arch) {
+            'arm64' { 'esbuild' }
+            default { 'esbuild.exe' }
+        }
         $modules += @{
-            Module = "@esbuild/$esbuildNative"
-            Spec   = "@esbuild/$esbuildNative@$(Get-EsbuildVersion)"
+            Module    = "@esbuild/$esbuildNative"
+            Spec      = "@esbuild/$esbuildNative@$(Get-EsbuildVersion)"
+            CheckType = 'file'
+            CheckFile = $esbuildBin
         }
     }
 
@@ -175,7 +188,7 @@ function Get-MissingNativeModules {
 
     $missing = @()
     foreach ($entry in $NativeModules) {
-        if (Test-NodeModuleResolvable -ModuleName $entry.Module) {
+        if (Test-NativeModulePresent -Entry $entry) {
             Write-Host "[INFO] Optional native loadable: $($entry.Module)"
             continue
         }
@@ -201,25 +214,7 @@ if ($missing.Count -eq 0) {
     exit 0
 }
 
-Write-Host "[INFO] Installing optional dependencies from package-lock (missing: $($missing.Module -join ', '))..."
-$code = Invoke-NpmCommand -NpmArguments @(
-    'install',
-    '--include=optional',
-    '--no-bin-links',
-    '--legacy-peer-deps'
-)
-if ($code -ne 0) {
-    Write-Host "[ERROR] npm install --include=optional failed (exit $code)"
-    exit $code
-}
-
-$missing = @(Get-MissingNativeModules -NativeModules $nativeModules)
-if ($missing.Count -eq 0) {
-    Write-Host '[INFO] Windows optional natives ready.'
-    exit 0
-}
-
-Write-Host '[INFO] Lockfile optional install did not restore platform binaries; using npm pack fallback...'
+Write-Host "[INFO] Installing Windows optional natives via npm pack (missing: $($missing.Module -join ', '))..."
 $exitCode = 0
 foreach ($entry in $missing) {
     $code = Install-ScopedPackageWithNpmPack -PackageSpec $entry.Spec
