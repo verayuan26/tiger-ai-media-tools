@@ -245,13 +245,8 @@ echo.
 exit /b 0
 
 :RUN_BUILD
-call npm run typecheck
-if errorlevel 1 exit /b 1
-
-call npm exec vite -- build
-if errorlevel 1 exit /b 1
-
-exit /b 0
+powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\scripts\run-windows-build.ps1" -ProjectRoot "%CD%"
+exit /b %errorlevel%
 
 :ENSURE_NODE
 set "NODE_X64=%LOCALAPPDATA%\ai-media-tools\node-x64"

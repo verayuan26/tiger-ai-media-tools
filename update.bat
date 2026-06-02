@@ -50,16 +50,9 @@ if errorlevel 1 (
 echo.
 
 echo [3/4] Building...
-call "node_modules\.bin\tsc.cmd" --noEmit
+powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\scripts\run-windows-build.ps1" -ProjectRoot "%CD%"
 if errorlevel 1 (
-  echo [ERROR] Typecheck failed.
-  pause
-  exit /b 1
-)
-
-call "node_modules\.bin\vite.cmd" build
-if errorlevel 1 (
-  echo [ERROR] Vite build failed.
+  echo [ERROR] Build failed.
   pause
   exit /b 1
 )

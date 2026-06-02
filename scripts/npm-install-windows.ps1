@@ -35,11 +35,8 @@ function Invoke-Npm {
     $npmCmd = Resolve-NpmCmd
     Write-Host "[INFO] npm $($NpmArguments -join ' ')"
 
-    & $npmCmd @NpmArguments
-    if ($null -ne $LASTEXITCODE) {
-        return [int]$LASTEXITCODE
-    }
-    return 0
+    $process = Start-Process -FilePath $npmCmd -ArgumentList $NpmArguments -WorkingDirectory $root -Wait -PassThru -NoNewWindow
+    return $process.ExitCode
 }
 
 $env:npm_config_build_from_source = 'false'

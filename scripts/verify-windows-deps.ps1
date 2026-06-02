@@ -19,6 +19,7 @@ function Test-TypeScriptReady {
     }
 
     $bins = @(
+        'node_modules\typescript\lib\tsc.js',
         'node_modules\.bin\tsc.cmd',
         'node_modules\.bin\tsc',
         'node_modules\.bin\tsc.ps1',
@@ -30,7 +31,7 @@ function Test-TypeScriptReady {
         }
     }
 
-    return $true
+    return $false
 }
 
 function Test-ViteReady {
