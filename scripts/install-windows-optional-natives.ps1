@@ -58,48 +58,59 @@ function Get-PackageVersion {
     return $json.version
 }
 
-function Get-RollupVersion {
-    return Get-PackageVersion -PkgJsonPath (Join-Path $root 'node_modules\rollup\package.json')
-}
+# Registry of simple (single top-level) Windows native packages.
+# To add a new native: append one entry here. No other code changes needed.
+#   MainPkgJson  - relative path from project root to the main package's package.json
+#   x64/arm64/ia32 entries:
+#     Module     - full npm package name
+#     DestSuffix - path inside node_modules\ where the package is installed
+#     CheckType  - 'require' (try require()) or 'file' (check file existence)
+#     CheckFile  - (file type only) filename inside DestSuffix to check
+$script:NATIVE_REGISTRY = @(
+    @{
+        MainPkgJson = 'node_modules\rollup\package.json'
+        x64   = @{ Module = '@rollup/rollup-win32-x64-msvc';            DestSuffix = '@rollup\rollup-win32-x64-msvc';            CheckType = 'require' }
+        arm64 = @{ Module = '@rollup/rollup-win32-arm64-msvc';           DestSuffix = '@rollup\rollup-win32-arm64-msvc';           CheckType = 'require' }
+        ia32  = @{ Module = '@rollup/rollup-win32-ia32-msvc';            DestSuffix = '@rollup\rollup-win32-ia32-msvc';            CheckType = 'require' }
+    }
+    @{
+        MainPkgJson = 'node_modules\@tailwindcss\oxide\package.json'
+        x64   = @{ Module = '@tailwindcss/oxide-win32-x64-msvc';         DestSuffix = '@tailwindcss\oxide-win32-x64-msvc';         CheckType = 'require' }
+        arm64 = @{ Module = '@tailwindcss/oxide-win32-arm64-msvc';        DestSuffix = '@tailwindcss\oxide-win32-arm64-msvc';        CheckType = 'require' }
+    }
+    @{
+        MainPkgJson = 'node_modules\lightningcss\package.json'
+        x64   = @{ Module = 'lightningcss-win32-x64-msvc';               DestSuffix = 'lightningcss-win32-x64-msvc';               CheckType = 'file'; CheckFile = 'lightningcss.win32-x64-msvc.node' }
+        arm64 = @{ Module = 'lightningcss-win32-arm64-msvc';              DestSuffix = 'lightningcss-win32-arm64-msvc';              CheckType = 'file'; CheckFile = 'lightningcss.win32-arm64-msvc.node' }
+    }
+)
 
 function Discover-AllNativeModules {
     $arch = Get-NodeArch
     $modules = @()
 
-    # --- Rollup (single top-level only) ---
-    $rollupVersion = Get-RollupVersion
-    if ($rollupVersion) {
-        $rollupNative = switch ($arch) {
-            'arm64' { 'rollup-win32-arm64-msvc' }
-            'ia32'  { 'rollup-win32-ia32-msvc' }
-            default { 'rollup-win32-x64-msvc' }
-        }
-        $modules += @{
-            Module    = "@rollup/$rollupNative"
-            Spec      = "@rollup/$rollupNative@$rollupVersion"
-            CheckType = 'require'
-            DestDir   = Join-Path $root "node_modules\@rollup\$rollupNative"
-        }
-    }
+    # --- Registry-driven simple natives ---
+    foreach ($regEntry in $script:NATIVE_REGISTRY) {
+        $version = Get-PackageVersion -PkgJsonPath (Join-Path $root $regEntry.MainPkgJson)
+        if (-not $version) { continue }
 
-    # --- lightningcss ---
-    $lightningcssVersion = Get-PackageVersion -PkgJsonPath (Join-Path $root 'node_modules\lightningcss\package.json')
-    if ($lightningcssVersion) {
-        $lightningcssNative = switch ($arch) {
-            'arm64' { 'lightningcss-win32-arm64-msvc' }
-            default { 'lightningcss-win32-x64-msvc' }
+        $archEntry = switch ($arch) {
+            'arm64' { if ($regEntry.ContainsKey('arm64')) { $regEntry.arm64 } else { $null } }
+            'ia32'  { if ($regEntry.ContainsKey('ia32'))  { $regEntry.ia32  } else { $regEntry.x64 } }
+            default { $regEntry.x64 }
         }
-        $lightningcssNodeFile = switch ($arch) {
-            'arm64' { 'lightningcss.win32-arm64-msvc.node' }
-            default { 'lightningcss.win32-x64-msvc.node' }
+        if (-not $archEntry) { continue }
+
+        $mod = @{
+            Module    = $archEntry.Module
+            Spec      = "$($archEntry.Module)@$version"
+            CheckType = $archEntry.CheckType
+            DestDir   = Join-Path $root "node_modules\$($archEntry.DestSuffix)"
         }
-        $modules += @{
-            Module    = $lightningcssNative
-            Spec      = "$lightningcssNative@$lightningcssVersion"
-            CheckType = 'file'
-            CheckFile = $lightningcssNodeFile
-            DestDir   = Join-Path $root "node_modules\$lightningcssNative"
+        if ($archEntry.ContainsKey('CheckFile')) {
+            $mod.CheckFile = $archEntry.CheckFile
         }
+        $modules += $mod
     }
 
     # --- esbuild (top-level + all nested) ---
