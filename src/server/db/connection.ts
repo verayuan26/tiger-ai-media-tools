@@ -168,6 +168,19 @@ export function openDatabase(dbPath: string): LibraryDatabase {
       8,
       new Date().toISOString()
     );
+    appliedVersions.add(8);
+  }
+
+  if (!appliedVersions.has(9)) {
+    const columns = db.prepare('pragma table_info(app_settings)').all() as Array<{ name: string }>;
+    const names = new Set(columns.map((column) => column.name));
+    if (!names.has('ffmpeg_path')) {
+      db.exec(`alter table app_settings add column ffmpeg_path text not null default ''`);
+    }
+    db.prepare('insert into schema_migrations (version, applied_at) values (?, ?)').run(
+      9,
+      new Date().toISOString()
+    );
   }
 
   return db;

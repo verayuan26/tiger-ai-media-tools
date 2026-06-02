@@ -17,6 +17,7 @@ export interface AnalysisContext {
   aiProvider: AiProvider;
   dataDir: string;
   frameMode: 'balanced' | 'precision';
+  ffmpegPath?: string | null;
   checkDrainLimits?: (processingCount: number) => DrainBlockedInfo | null;
   checkJobBudget?: (job: AnalysisJob) => DrainBlockedInfo | null;
   onAiJobCompleted?: (job: AnalysisJob) => void;
@@ -38,7 +39,7 @@ export async function processAnalysisJob(
   switch (job.stage) {
     case 'metadata': {
       if (asset.kind === 'video' || asset.kind === 'audio') {
-        const metadata = await probeMedia(asset.path);
+        const metadata = await probeMedia(asset.path, context.ffmpegPath);
         context.repos.assets.setMetadata(asset.id, {
           durationSeconds: metadata.durationSeconds,
           width: metadata.width,
@@ -63,7 +64,8 @@ export async function processAnalysisJob(
         durationSeconds: asset.durationSeconds ?? 0,
         outputDir: path.join(context.dataDir, 'frames', asset.id),
         mode: frameMode,
-        sourceWidth: asset.width
+        sourceWidth: asset.width,
+        ffmpegPath: context.ffmpegPath
       });
       const strategy = frameMode === 'precision' ? 'precision' : 'interval';
       context.repos.frames.replaceFrames(
@@ -93,7 +95,8 @@ export async function processAnalysisJob(
       if (asset.kind === 'video') {
         await extractAudioTrack({
           filePath: asset.path,
-          outputPath: transcriptionAudioPath(context.dataDir, asset.id)
+          outputPath: transcriptionAudioPath(context.dataDir, asset.id),
+          ffmpegPath: context.ffmpegPath
         });
       }
 

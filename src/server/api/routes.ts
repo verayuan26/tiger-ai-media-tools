@@ -10,7 +10,8 @@ import type { AiProvider } from '../ai/provider';
 import {
   DirectoryPickerCancelledError,
   DirectoryPickerUnavailableError,
-  pickDirectory
+  pickDirectory,
+  pickFile
 } from '../media/pickDirectory';
 import { revealInFileManager } from '../media/revealInFileManager';
 import { clearGeneratedCache, getGeneratedCacheStats } from '../media/cacheStorage';
@@ -116,6 +117,27 @@ export function createApiRouter(context: ApiRouteContext): Router {
       try {
         const path = await pickDirectory();
         res.json({ path });
+      } catch (error) {
+        if (error instanceof DirectoryPickerCancelledError) {
+          res.json({ cancelled: true });
+          return;
+        }
+        if (error instanceof DirectoryPickerUnavailableError) {
+          next(new HttpError(503, error.message));
+          return;
+        }
+        next(error);
+      }
+    })
+  );
+
+  router.post(
+    '/system/pick-file',
+    asyncHandler(async (req, res, next) => {
+      const { filter } = (req.body ?? {}) as { filter?: string };
+      try {
+        const picked = await pickFile(filter);
+        res.json({ path: picked });
       } catch (error) {
         if (error instanceof DirectoryPickerCancelledError) {
           res.json({ cancelled: true });
@@ -443,6 +465,7 @@ export function createApiRouter(context: ApiRouteContext): Router {
           aiProvider,
           dataDir: context.dataDir,
           frameMode: context.settingsService.getFrameMode(),
+          ffmpegPath: settings.ffmpegPath || null,
           checkDrainLimits: (processingCount) => context.settingsService.checkDrainLimits(processingCount),
           checkJobBudget: (job) => context.settingsService.checkJobBudget(job),
           onAiJobCompleted: (job) => context.settingsService.recordAiJobSpend(job)

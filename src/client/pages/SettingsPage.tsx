@@ -6,6 +6,7 @@ import {
   EyeOff,
   HardDrive,
   Loader2,
+  Settings2,
   Shield,
   XCircle,
   Zap
@@ -29,6 +30,7 @@ import { Slider } from '../components/ui/slider';
 import { Switch } from '../components/ui/switch';
 import type { AiProviderName, ApiProtocol, FallbackTranscribeProvider, TranscriptionMode } from '../../shared/settings';
 import type { CacheStats } from '../../shared/cache';
+import { pickFileFromSystem } from '../lib/pick-directory';
 
 export function SettingsPage(): React.JSX.Element {
   const [loading, setLoading] = useState(true);
@@ -54,6 +56,8 @@ export function SettingsPage(): React.JSX.Element {
   const [precisionModeDefault, setPrecisionModeDefault] = useState(false);
   const [reuseParsedResults, setReuseParsedResults] = useState(true);
   const [dailySpendYuan, setDailySpendYuan] = useState(0);
+  const [ffmpegPath, setFfmpegPath] = useState('');
+  const [pickingFfmpeg, setPickingFfmpeg] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
   const [testMessage, setTestMessage] = useState('');
@@ -87,6 +91,7 @@ export function SettingsPage(): React.JSX.Element {
       setPrecisionModeDefault(settings.precisionModeDefault);
       setReuseParsedResults(settings.reuseParsedResults);
       setDailySpendYuan(settings.dailySpendYuan);
+      setFfmpegPath(settings.ffmpegPath);
       await loadCacheStats();
     } catch (error) {
       toast.error('加载设置失败', {
@@ -172,6 +177,22 @@ export function SettingsPage(): React.JSX.Element {
     }
   }
 
+  async function handlePickFfmpeg(): Promise<void> {
+    setPickingFfmpeg(true);
+    try {
+      const result = await pickFileFromSystem('可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*');
+      if (result.status === 'selected') {
+        setFfmpegPath(result.path);
+      } else if (result.status === 'unavailable') {
+        toast.info('请手动输入 ffmpeg 路径', { description: result.message });
+      }
+    } catch (error) {
+      toast.error('选择文件失败', { description: error instanceof Error ? error.message : '请稍后重试' });
+    } finally {
+      setPickingFfmpeg(false);
+    }
+  }
+
   async function handleSaveSettings(): Promise<void> {
     setSaving(true);
     try {
@@ -192,6 +213,7 @@ export function SettingsPage(): React.JSX.Element {
         concurrentTasks: concurrentTasks[0],
         precisionModeDefault,
         reuseParsedResults,
+        ffmpegPath: ffmpegPath.trim(),
         ...(apiKey.trim().length > 0 ? { apiKey: apiKey.trim() } : {})
       });
       setApiKeyConfigured(settings.apiKeyConfigured);
@@ -205,6 +227,7 @@ export function SettingsPage(): React.JSX.Element {
       setFallbackTranscribeApiKeyConfigured(settings.fallbackTranscribeApiKeyConfigured);
       setFallbackTranscribeApiKey('');
       setDailySpendYuan(settings.dailySpendYuan);
+      setFfmpegPath(settings.ffmpegPath);
       toast.success('设置已保存', { description: '配置已写入本地数据库，重启服务后仍生效' });
     } catch (error) {
       toast.error('保存失败', {
@@ -554,6 +577,61 @@ export function SettingsPage(): React.JSX.Element {
                   <p className="text-sm text-muted-foreground mt-1">开启后视频默认每 3 秒抽一帧（可能增加成本）</p>
                 </div>
                 <Switch checked={precisionModeDefault} onCheckedChange={setPrecisionModeDefault} />
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-lg bg-orange-100">
+                <Settings2 className="size-5 text-orange-600" />
+              </div>
+              <div>
+                <h2 className="font-semibold text-foreground">媒体工具配置</h2>
+                <p className="text-sm text-muted-foreground">配置 ffmpeg 路径（视频抽帧、音频提取必需）</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="ffmpeg-path">ffmpeg 可执行文件路径</Label>
+                <p className="text-xs text-muted-foreground mt-1 mb-2">
+                  留空则使用系统 PATH 中的 ffmpeg。Windows 用户若 ffmpeg 未加入 PATH，请手动填写或点击浏览选择。
+                </p>
+                <div className="flex gap-2 mt-2">
+                  <Input
+                    id="ffmpeg-path"
+                    type="text"
+                    value={ffmpegPath}
+                    onChange={(event) => setFfmpegPath(event.target.value)}
+                    placeholder="留空使用系统 PATH，例如：C:\ffmpeg\bin\ffmpeg.exe"
+                    className="flex-1 font-mono text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={pickingFfmpeg}
+                    onClick={() => void handlePickFfmpeg()}
+                  >
+                    {pickingFfmpeg ? <Loader2 className="size-4 animate-spin" /> : '浏览…'}
+                  </Button>
+                </div>
+                {ffmpegPath.trim() ? (
+                  <p className="text-xs text-green-600 mt-1">已配置：{ffmpegPath}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    未配置，使用系统 PATH 中的 ffmpeg。可从{' '}
+                    <a
+                      href="https://ffmpeg.org/download.html"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline"
+                    >
+                      ffmpeg.org
+                    </a>{' '}
+                    下载。
+                  </p>
+                )}
               </div>
             </div>
           </Card>

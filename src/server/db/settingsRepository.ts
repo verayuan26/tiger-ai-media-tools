@@ -73,6 +73,7 @@ export function createSettingsRepository(db: LibraryDatabase, seed: SettingsSeed
              concurrent_tasks = ?,
              precision_mode_default = ?,
              reuse_parsed_results = ?,
+             ffmpeg_path = ?,
              updated_at = ?
          where id = ?`
       ).run(
@@ -114,6 +115,7 @@ export function createSettingsRepository(db: LibraryDatabase, seed: SettingsSeed
           : input.reuseParsedResults
             ? 1
             : 0,
+        input.ffmpegPath !== undefined ? input.ffmpegPath.trim() : String(current.ffmpeg_path ?? ''),
         nowIso(),
         SETTINGS_ID
       );
@@ -267,6 +269,7 @@ function mapPublic(row: Row): AppSettings {
     precisionModeDefault: Boolean(row.precision_mode_default),
     reuseParsedResults: Boolean(row.reuse_parsed_results),
     dailySpendYuan: Number(row.daily_spend_cents) / 100,
+    ffmpegPath: String(row.ffmpeg_path ?? ''),
     updatedAt: String(row.updated_at)
   };
 }

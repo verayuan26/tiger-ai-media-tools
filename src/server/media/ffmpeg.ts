@@ -23,6 +23,25 @@ export const MAX_FRAME_WIDTH = 1920;
 /** JPEG quality for extracted frames (`-q:v 2` ≈ high quality). */
 export const FRAME_JPEG_QUALITY = '2';
 
+export function resolveFFmpegBin(customPath?: string | null): string {
+  const trimmed = customPath?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : 'ffmpeg';
+}
+
+export function resolveFFprobeBin(customPath?: string | null): string {
+  const trimmed = customPath?.trim();
+  if (trimmed && trimmed.length > 0) {
+    const dir = path.dirname(trimmed);
+    const base = path.basename(trimmed).toLowerCase();
+    if (base === 'ffmpeg' || base === 'ffmpeg.exe') {
+      const probeName = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe';
+      return path.join(dir, probeName);
+    }
+    return trimmed;
+  }
+  return 'ffprobe';
+}
+
 export function buildFrameScaleFilter(sourceWidth: number | null | undefined): string | null {
   if (!sourceWidth || sourceWidth <= 0 || sourceWidth <= MAX_FRAME_WIDTH) {
     return null;
@@ -76,8 +95,8 @@ export function safeFrameFileStem(assetId: string): string {
   return normalized || 'asset';
 }
 
-export async function probeMedia(filePath: string): Promise<MediaMetadata> {
-  const { stdout } = await execa('ffprobe', [
+export async function probeMedia(filePath: string, ffmpegPath?: string | null): Promise<MediaMetadata> {
+  const { stdout } = await execa(resolveFFprobeBin(ffmpegPath), [
     '-v',
     'error',
     '-show_entries',
@@ -137,9 +156,10 @@ export async function ensureTranscriptionAudioFile(input: {
 export async function extractAudioTrack(input: {
   filePath: string;
   outputPath: string;
+  ffmpegPath?: string | null;
 }): Promise<string> {
   await mkdir(path.dirname(input.outputPath), { recursive: true });
-  await execa('ffmpeg', [
+  await execa(resolveFFmpegBin(input.ffmpegPath), [
     '-y',
     '-i',
     input.filePath,
@@ -163,6 +183,7 @@ export async function extractVideoFrames(input: {
   outputDir: string;
   mode: 'balanced' | 'precision';
   sourceWidth?: number | null;
+  ffmpegPath?: string | null;
 }): Promise<ExtractedFrame[]> {
   await mkdir(input.outputDir, { recursive: true });
   const timestamps = planFrameTimestamps({
@@ -176,7 +197,7 @@ export async function extractVideoFrames(input: {
   for (const timestamp of timestamps) {
     const outputPath = path.join(input.outputDir, `${fileStem}-${timestamp}.jpg`);
     await execa(
-      'ffmpeg',
+      resolveFFmpegBin(input.ffmpegPath),
       buildFfmpegFrameArgs({
         timestampSeconds: timestamp,
         filePath: input.filePath,

@@ -20,6 +20,7 @@ export interface AppSettings {
   precisionModeDefault: boolean;
   reuseParsedResults: boolean;
   dailySpendYuan: number;
+  ffmpegPath: string;
   updatedAt: string;
 }
 
@@ -39,6 +40,7 @@ export interface AppSettingsPatch {
   concurrentTasks?: number;
   precisionModeDefault?: boolean;
   reuseParsedResults?: boolean;
+  ffmpegPath?: string;
 }
 
 export interface TestAiConnectionInput {
