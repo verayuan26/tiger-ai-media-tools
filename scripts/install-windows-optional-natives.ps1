@@ -119,8 +119,11 @@ function Get-WindowsNativeModules {
 function Get-ScopedPackageDestination {
     param([string]$ScopedPackage)
 
-    $relative = $ScopedPackage.TrimStart('@') -replace '/', '\'
-    return Join-Path $root "node_modules\$relative"
+    if ($ScopedPackage -notmatch '^@([^/]+)/(.+)$') {
+        throw "Invalid scoped package name: $ScopedPackage"
+    }
+
+    return Join-Path $root "node_modules\@$($Matches[1])\$($Matches[2])"
 }
 
 function Install-ScopedPackageWithNpmPack {
