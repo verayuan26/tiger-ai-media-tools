@@ -8,6 +8,8 @@ $ErrorActionPreference = 'Continue'
 $root = $ProjectRoot.Trim().Trim('"').TrimEnd('\', '/')
 Set-Location -LiteralPath $root
 
+. (Join-Path $PSScriptRoot 'windows-node-helpers.ps1')
+
 function Resolve-NpmCmd {
     $portable = Join-Path $env:LOCALAPPDATA 'ai-media-tools\node-x64\npm.cmd'
     if (Test-Path -LiteralPath $portable) {

@@ -8,6 +8,8 @@ $ErrorActionPreference = 'Stop'
 $root = $ProjectRoot.Trim().Trim('"').TrimEnd('\', '/')
 Set-Location -LiteralPath $root
 
+. (Join-Path $PSScriptRoot 'windows-node-helpers.ps1')
+
 function Test-PackagePresent {
     param([string]$Name)
     return Test-Path -LiteralPath (Join-Path $root "node_modules\$Name\package.json")
@@ -55,15 +57,14 @@ function Test-WindowsRollupNative {
         return $false
     }
 
-    $arch = (& $nodeExe -p 'process.arch' 2>$null | Select-Object -First 1).Trim()
+    $arch = Get-NodeProcessArch -NodeExe $nodeExe
     $nativeName = switch ($arch) {
         'arm64' { '@rollup/rollup-win32-arm64-msvc' }
         'ia32' { '@rollup/rollup-win32-ia32-msvc' }
         default { '@rollup/rollup-win32-x64-msvc' }
     }
 
-    & $nodeExe -e "require('$nativeName');" 2>$null
-    return $LASTEXITCODE -eq 0
+    return Test-NodeCanRequire -ModuleName $nativeName -NodeExe $nodeExe -WorkingDirectory $root
 }
 
 function Test-BetterSqlite3 {
