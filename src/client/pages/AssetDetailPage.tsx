@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import {
+  AlertTriangle,
   ArrowLeft,
   Calendar,
   Clock,
@@ -380,21 +381,47 @@ export function AssetDetailPage(): React.JSX.Element {
 function AssetPreview({ asset }: { asset: Asset }): React.JSX.Element {
   const mediaUrl = getAssetMediaUrl(asset.id);
   const thumbnailUrl = getAssetThumbnailUrl(asset.id, asset.thumbnailPath);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
+
+  function handleVideoError(): void {
+    const v = videoRef.current;
+    const code = v?.error?.code;
+    if (code === MediaError.MEDIA_ERR_DECODE || code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
+      setVideoError(
+        '浏览器无法解码此视频（可能使用了 H.265/HEVC 或其他不支持的编码）。' +
+        '请尝试用 Edge 浏览器打开，或在本地使用视频播放器播放原始文件。'
+      );
+    } else {
+      setVideoError('视频加载失败，请检查文件是否可访问。');
+    }
+  }
 
   return (
     <div className="rounded-lg overflow-hidden bg-muted">
-      <div className="aspect-video flex items-center justify-center">
+      <div className="aspect-video flex items-center justify-center relative">
         {asset.kind === 'video' ? (
-          <video
-            key={mediaUrl}
-            src={mediaUrl}
-            controls
-            playsInline
-            preload="metadata"
-            className="max-w-full max-h-full w-full h-full object-contain bg-black"
-          >
-            您的浏览器不支持视频播放
-          </video>
+          <>
+            <video
+              ref={videoRef}
+              key={mediaUrl}
+              controls
+              playsInline
+              preload="auto"
+              className="max-w-full max-h-full w-full h-full object-contain"
+              onError={handleVideoError}
+            >
+              <source src={mediaUrl} type="video/mp4" />
+              <source src={mediaUrl} />
+              您的浏览器不支持视频播放
+            </video>
+            {videoError ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 p-6 text-center gap-3">
+                <AlertTriangle className="size-8 text-yellow-400" />
+                <p className="text-sm text-yellow-200 max-w-sm leading-relaxed">{videoError}</p>
+              </div>
+            ) : null}
+          </>
         ) : asset.kind === 'audio' ? (
           <div className="w-full max-w-xl px-6 py-8 space-y-4">
             <FileKindIcon kind={asset.kind} />
