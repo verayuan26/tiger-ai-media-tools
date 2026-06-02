@@ -129,7 +129,7 @@ export function createOpenAiCompatibleProvider(config: OpenAiCompatibleProviderC
         })
       });
 
-      assertOkResponse(response, 'OpenAI-compatible image analysis request failed');
+      await assertOkResponseWithBody(response, 'OpenAI-compatible image analysis request failed');
       const body = (await response.json()) as ChatCompletionResponse;
       const content = body.choices?.[0]?.message?.content;
       if (!content) {
@@ -149,6 +149,36 @@ function assertOkResponse(response: Response, message: string): void {
   if (!response.ok) {
     throw new Error(`${message} with HTTP status ${response.status}.`);
   }
+}
+
+async function assertOkResponseWithBody(response: Response, message: string): Promise<void> {
+  if (response.ok) return;
+
+  let detail = '';
+  try {
+    const body = (await response.json()) as { error?: { message?: string; type?: string } };
+    const apiMsg = body?.error?.message;
+    const apiType = body?.error?.type;
+    if (apiMsg) {
+      detail = ` — ${apiType ? `[${apiType}] ` : ''}${apiMsg}`;
+    }
+  } catch {
+    try {
+      const text = await response.text();
+      if (text) detail = ` — ${text.slice(0, 200)}`;
+    } catch {
+      // ignore
+    }
+  }
+
+  const hint =
+    response.status === 400 && detail.toLowerCase().includes('image')
+      ? ' (该模型可能不支持图片输入，请在设置中换用支持视觉识别的模型，例如 deepseek-vl2 或其他多模态模型)'
+      : response.status === 400
+        ? ' (请确认视觉识别模型支持多模态图片输入)'
+        : '';
+
+  throw new Error(`${message} with HTTP status ${response.status}${detail}.${hint}`);
 }
 
 function assertTranscriptionResponse(response: Response, endpoint: string): void {
