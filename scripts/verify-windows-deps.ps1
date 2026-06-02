@@ -86,6 +86,19 @@ function Test-BetterSqlite3 {
         return $false
     }
 
+    # Quick file-existence check: if no .node binary in any of the known locations,
+    # skip the expensive require() test and return false immediately.
+    $bsqlRoot = Join-Path $root 'node_modules\better-sqlite3'
+    $releaseBin = Join-Path $bsqlRoot 'build\Release\better_sqlite3.node'
+    $libBindingDir = Join-Path $bsqlRoot 'lib\binding'
+    $hasBinary = (Test-Path -LiteralPath $releaseBin) -or `
+                 ((Test-Path -LiteralPath $libBindingDir) -and `
+                  (Get-ChildItem -LiteralPath $libBindingDir -Filter 'better_sqlite3.node' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1))
+    if (-not $hasBinary) {
+        Write-Host '[VERIFY] better-sqlite3 native binary file not found'
+        return $false
+    }
+
     $nodeExe = $env:NODE_X64_EXE
     if (-not $nodeExe -or -not (Test-Path -LiteralPath $nodeExe)) {
         $nodeExe = (Get-Command node -ErrorAction SilentlyContinue).Source
@@ -94,7 +107,12 @@ function Test-BetterSqlite3 {
         return $false
     }
 
-    return Test-NodeCanRequire -ModuleName 'better-sqlite3' -NodeExe $nodeExe -WorkingDirectory $root
+    try {
+        return Test-NodeCanRequire -ModuleName 'better-sqlite3' -NodeExe $nodeExe -WorkingDirectory $root
+    } catch {
+        Write-Host "[VERIFY] better-sqlite3 require() check threw: $($_.Exception.Message)"
+        return $false
+    }
 }
 
 if (-not (Test-TypeScriptReady)) {

@@ -51,12 +51,62 @@ if ($code -ne 0) {
     exit $code
 }
 
+function Resolve-NodeExe {
+    $portable = Join-Path $env:LOCALAPPDATA 'ai-media-tools\node-x64\node.exe'
+    if (Test-Path -LiteralPath $portable) { return $portable }
+
+    $fromEnv = $env:NODE_X64_EXE
+    if ($fromEnv -and (Test-Path -LiteralPath $fromEnv)) { return $fromEnv }
+
+    $cmd = Get-Command node -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+
+    throw 'node.exe not found in PATH'
+}
+
 function Install-WindowsOptionalNatives {
-    Write-Host '[INFO] Ensure Rollup/esbuild Windows optional natives...'
+    Write-Host '[INFO] Ensure Windows optional natives (rollup/esbuild/tailwindcss/lightningcss)...'
     & (Join-Path $here 'install-windows-optional-natives.ps1') -ProjectRoot $root | Out-Host
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
+}
+
+# Phase 1.5: Download better-sqlite3 prebuilt binary via prebuild-install.
+# better-sqlite3's install script is "prebuild-install || node-gyp rebuild".
+# Because Phase 1 used --ignore-scripts, that script never ran.  Calling
+# prebuild-install here downloads a prebuilt .node for the current
+# Node ABI directly from GitHub releases — no VS Build Tools required.
+# If no prebuilt exists for this Node version, we fall through to
+# Phase 2/3 which compile from source.
+Write-Host '[INFO] Phase 1.5: Download better-sqlite3 prebuilt binary...'
+$bsqlDir      = Join-Path $root 'node_modules\better-sqlite3'
+$prebuildBinJs = Join-Path $root 'node_modules\prebuild-install\bin.js'
+$prebuildOk   = $false
+
+if ((Test-Path -LiteralPath $bsqlDir) -and (Test-Path -LiteralPath $prebuildBinJs)) {
+    try {
+        $nodeExe = Resolve-NodeExe
+        $proc = Start-Process -FilePath $nodeExe `
+            -ArgumentList @($prebuildBinJs) `
+            -WorkingDirectory $bsqlDir `
+            -Wait -PassThru -NoNewWindow
+        if ($proc.ExitCode -eq 0) {
+            Write-Host '[INFO] better-sqlite3 prebuilt binary downloaded successfully.'
+            $prebuildOk = $true
+        } else {
+            Write-Host "[WARN] prebuild-install exited $($proc.ExitCode) — no prebuilt for this Node version. Will compile from source."
+        }
+    } catch {
+        Write-Host "[WARN] prebuild-install could not run: $($_.Exception.Message)"
+    }
+} else {
+    Write-Host '[WARN] prebuild-install or better-sqlite3 not found in node_modules — skipping Phase 1.5.'
+}
+
+if ($prebuildOk) {
+    Install-WindowsOptionalNatives
+    exit 0
 }
 
 Write-Host '[INFO] Phase 2: rebuild native modules including better-sqlite3...'
