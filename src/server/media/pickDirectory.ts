@@ -50,12 +50,24 @@ export async function pickDirectory(prompt = '选择素材目录'): Promise<stri
 
   if (process.platform === 'win32') {
     const escapedPrompt = prompt.replace(/'/g, "''");
+    // Use a TopMost invisible owner form so the dialog always appears in front.
+    // -STA is required for WinForms; -NonInteractive must NOT be used here as it
+    // explicitly prevents interactive dialogs from appearing.
     const script = [
-      "Add-Type -AssemblyName System.Windows.Forms",
+      'Add-Type -AssemblyName System.Windows.Forms',
+      '[System.Windows.Forms.Application]::EnableVisualStyles()',
+      '$owner = New-Object System.Windows.Forms.Form',
+      '$owner.TopMost = $true',
+      '$owner.ShowInTaskbar = $false',
+      '$owner.WindowState = [System.Windows.Forms.FormWindowState]::Minimized',
+      '$owner.Show()',
+      '$owner.Hide()',
       '$dialog = New-Object System.Windows.Forms.FolderBrowserDialog',
       `$dialog.Description = '${escapedPrompt}'`,
-      "$result = $dialog.ShowDialog()",
-      "if ($result -eq [System.Windows.Forms.DialogResult]::OK) {",
+      '$dialog.ShowNewFolderButton = $true',
+      '$result = $dialog.ShowDialog($owner)',
+      '$owner.Dispose()',
+      'if ($result -eq [System.Windows.Forms.DialogResult]::OK) {',
       '  Write-Output $dialog.SelectedPath',
       '}'
     ].join('; ');
@@ -63,7 +75,7 @@ export async function pickDirectory(prompt = '选择素材目录'): Promise<stri
     try {
       const { stdout } = await execFileAsync('powershell.exe', [
         '-NoProfile',
-        '-NonInteractive',
+        '-STA',
         '-Command',
         script
       ]);
