@@ -42,6 +42,16 @@ if (-not (Test-Path -LiteralPath $viteJs)) {
     exit 1
 }
 
+if ($env:OS -match 'Windows') {
+    $optionalScript = Join-Path $PSScriptRoot 'install-windows-optional-natives.ps1'
+    if (Test-Path -LiteralPath $optionalScript) {
+        & $optionalScript -ProjectRoot $root | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+        }
+    }
+}
+
 Write-Host '[BUILD] vite build...'
 & $nodeExe $viteJs build
 if ($null -ne $LASTEXITCODE) {

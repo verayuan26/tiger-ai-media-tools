@@ -174,6 +174,15 @@ if not errorlevel 1 (
   exit /b 0
 )
 
+echo [1/4] Repairing optional native packages...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\scripts\install-windows-optional-natives.ps1" -ProjectRoot "%CD%"
+call :VERIFY_DEPS
+if not errorlevel 1 (
+  echo [1/4] Dependencies OK after native repair.
+  echo.
+  exit /b 0
+)
+
 echo [1/4] Installing dependencies...
 
 call :CHECK_NODE_X64

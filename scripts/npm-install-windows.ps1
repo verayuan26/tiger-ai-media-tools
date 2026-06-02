@@ -49,6 +49,12 @@ if ($code -ne 0) {
     exit $code
 }
 
+Write-Host '[INFO] Phase 1b: install Rollup/esbuild Windows optional natives...'
+& (Join-Path $here 'install-windows-optional-natives.ps1') -ProjectRoot $root | Out-Host
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
 Write-Host '[INFO] Phase 2: rebuild native modules including better-sqlite3...'
 $code = Invoke-Npm -NpmArguments @('rebuild')
 if ($code -eq 0) {

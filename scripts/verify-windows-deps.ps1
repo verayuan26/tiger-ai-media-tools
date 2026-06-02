@@ -38,6 +38,34 @@ function Test-ViteReady {
     return Test-PackagePresent 'vite'
 }
 
+function Test-WindowsRollupNative {
+    if ($env:OS -notmatch 'Windows') {
+        return $true
+    }
+
+    if (-not (Test-PackagePresent 'rollup')) {
+        return $true
+    }
+
+    $nodeExe = $env:NODE_X64_EXE
+    if (-not $nodeExe -or -not (Test-Path -LiteralPath $nodeExe)) {
+        $nodeExe = (Get-Command node -ErrorAction SilentlyContinue).Source
+    }
+
+    $arch = 'x64'
+    if ($nodeExe) {
+        $arch = (& $nodeExe -p 'process.arch' 2>$null | Select-Object -First 1).Trim()
+    }
+
+    $nativeName = switch ($arch) {
+        'arm64' { 'rollup-win32-arm64-msvc' }
+        'ia32' { 'rollup-win32-ia32-msvc' }
+        default { 'rollup-win32-x64-msvc' }
+    }
+
+    return Test-Path -LiteralPath (Join-Path $root "node_modules\@rollup\$nativeName\package.json")
+}
+
 function Test-BetterSqlite3 {
     if (-not (Test-PackagePresent 'better-sqlite3')) {
         return $false
@@ -62,6 +90,11 @@ if (-not (Test-TypeScriptReady)) {
 
 if (-not (Test-ViteReady)) {
     Write-Host '[VERIFY] vite package missing'
+    exit 2
+}
+
+if (-not (Test-WindowsRollupNative)) {
+    Write-Host '[VERIFY] rollup Windows native binary missing (@rollup/rollup-win32-x64-msvc)'
     exit 2
 }
 
