@@ -138,22 +138,25 @@ if ($nativeModules.Count -eq 0) {
     exit 0
 }
 
-$missingSpecs = @()
+$allSpecs = @($nativeModules | ForEach-Object { $_.Spec })
+$missingModules = @()
+
 foreach ($entry in $nativeModules) {
     if (Test-NodeModuleResolvable -ModuleName $entry.Module) {
         Write-Host "[INFO] Optional native loadable: $($entry.Module)"
         continue
     }
 
-    $missingSpecs += $entry.Spec
+    $missingModules += $entry.Module
 }
 
-if ($missingSpecs.Count -eq 0) {
+if ($missingModules.Count -eq 0) {
     exit 0
 }
 
-Write-Host '[INFO] Installing missing optional natives in one npm command...'
-$code = Invoke-NpmInstall -PackageSpecs $missingSpecs
+Write-Host "[INFO] Installing Windows optional natives in one npm command (missing: $($missingModules -join ', '))..."
+Write-Host '[INFO] npm will install rollup and esbuild platform packages together to avoid prune.'
+$code = Invoke-NpmInstall -PackageSpecs $allSpecs
 if ($code -ne 0) {
     Write-Host "[ERROR] Optional native install failed (exit $code)"
     exit $code
@@ -171,13 +174,14 @@ foreach ($entry in $nativeModules) {
 if ($stillMissing.Count -gt 0) {
     Write-Host '[INFO] Retrying with npm install --include=optional ...'
     $npmCmd = Resolve-NpmCmd
-    $process = Start-Process -FilePath $npmCmd -ArgumentList @(Get-NpmRegistryArguments) + @(
+    $retryArguments = @(Get-NpmRegistryArguments) + @(
         'install',
         '--include=optional',
         '--no-bin-links',
         '--ignore-scripts',
         '--legacy-peer-deps'
-    ) -WorkingDirectory $root -Wait -PassThru -NoNewWindow
+    )
+    $process = Start-Process -FilePath $npmCmd -ArgumentList $retryArguments -WorkingDirectory $root -Wait -PassThru -NoNewWindow
     if ($process.ExitCode -ne 0) {
         exit $process.ExitCode
     }
