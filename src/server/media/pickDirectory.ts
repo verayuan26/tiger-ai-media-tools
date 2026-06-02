@@ -54,6 +54,8 @@ export async function pickDirectory(prompt = '选择素材目录'): Promise<stri
     // -STA is required for WinForms; -NonInteractive must NOT be used here as it
     // explicitly prevents interactive dialogs from appearing.
     const script = [
+      '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+      '$OutputEncoding = [System.Text.Encoding]::UTF8',
       'Add-Type -AssemblyName System.Windows.Forms',
       '[System.Windows.Forms.Application]::EnableVisualStyles()',
       '$owner = New-Object System.Windows.Forms.Form',
@@ -78,7 +80,7 @@ export async function pickDirectory(prompt = '选择素材目录'): Promise<stri
         '-STA',
         '-Command',
         script
-      ]);
+      ], { encoding: 'utf8' });
       const picked = stdout.trim();
       if (!picked) {
         throw new DirectoryPickerCancelledError();
