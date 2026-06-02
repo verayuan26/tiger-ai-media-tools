@@ -281,7 +281,15 @@ set "NODE_X64_EXE=%NODE_X64%\node.exe"
 if exist "%NODE_X64_EXE%" set "PATH=%NODE_X64%;%PATH%"
 if exist "%CD%\.tools\node-path.txt" (
   set /p "NODE_HOME=" < "%CD%\.tools\node-path.txt"
-  if defined NODE_HOME set "PATH=!NODE_HOME!;%PATH%"
+  if defined NODE_HOME (
+    set "PATH=!NODE_HOME!;%PATH%"
+    if not exist "!NODE_X64_EXE!" (
+      if exist "!NODE_HOME!\node.exe" (
+        set "NODE_X64=!NODE_HOME!"
+        set "NODE_X64_EXE=!NODE_HOME!\node.exe"
+      )
+    )
+  )
 )
 if exist "%~dp0.tools\node\node.exe" set "PATH=%~dp0.tools\node;%PATH%"
 set "PATH=%ProgramFiles%\nodejs;%ProgramFiles(x86)%\nodejs;%AppData%\npm;%PATH%"
