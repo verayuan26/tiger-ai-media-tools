@@ -40,28 +40,40 @@ export function TaskQueuePage(): React.JSX.Element {
   const [autoProcess, setAutoProcess] = useState(true);
   const [concurrentLimit, setConcurrentLimit] = useState(3);
   const autoDrainInFlight = useRef(false);
+  const initialLoadDone = useRef(false);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [nextSummary, nextJobs, settings] = await Promise.all([
-        getQueueSummary(),
-        listQueueJobs(),
-        getSettings()
-      ]);
+  const applyFetchedData = useCallback(
+    (nextSummary: QueueSummary, nextJobs: QueueJobListItem[], nextConcurrent: number) => {
       setSummary(nextSummary);
       setJobs(nextJobs);
-      setConcurrentLimit(settings.concurrentTasks);
+      setConcurrentLimit(nextConcurrent);
       setSelectedJobIds((current) => {
         const valid = new Set(nextJobs.map((job) => job.id));
         return new Set([...current].filter((id) => valid.has(id)));
       });
-    } catch (error) {
-      toast.error(readErrorMessage(error));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    []
+  );
+
+  const refresh = useCallback(
+    async ({ silent = false }: { silent?: boolean } = {}) => {
+      if (!silent) setLoading(true);
+      try {
+        const [nextSummary, nextJobs, settings] = await Promise.all([
+          getQueueSummary(),
+          listQueueJobs(),
+          getSettings()
+        ]);
+        applyFetchedData(nextSummary, nextJobs, settings.concurrentTasks);
+      } catch (error) {
+        toast.error(readErrorMessage(error));
+      } finally {
+        if (!silent) setLoading(false);
+        initialLoadDone.current = true;
+      }
+    },
+    [applyFetchedData]
+  );
 
   const runDrain = useCallback(async (): Promise<void> => {
     const result = await drainUntilIdle({
@@ -83,7 +95,7 @@ export function TaskQueuePage(): React.JSX.Element {
   }, [concurrentLimit]);
 
   useEffect(() => {
-    void refresh();
+    void refresh({ silent: false });
   }, [refresh]);
 
   useEffect(() => {
@@ -96,7 +108,7 @@ export function TaskQueuePage(): React.JSX.Element {
 
     void runAction(async () => {
       await runDrain();
-    });
+    }, { silent: true });
     // Kick an initial drain when the page loads with pending work.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoProcess, loading, summary?.pending]);
@@ -121,7 +133,7 @@ export function TaskQueuePage(): React.JSX.Element {
         setBusy(true);
         try {
           await runDrain();
-          await refresh();
+          await refresh({ silent: true });
         } catch (error) {
           toast.error(readErrorMessage(error));
         } finally {
@@ -134,11 +146,11 @@ export function TaskQueuePage(): React.JSX.Element {
     return () => window.clearInterval(timer);
   }, [autoProcess, busy, refresh, runDrain]);
 
-  async function runAction(action: () => Promise<void>): Promise<void> {
+  async function runAction(action: () => Promise<void>, { silent = false }: { silent?: boolean } = {}): Promise<void> {
     setBusy(true);
     try {
       await action();
-      await refresh();
+      await refresh({ silent });
     } catch (error) {
       toast.error(readErrorMessage(error));
     } finally {
