@@ -10,6 +10,8 @@ Set-Location -LiteralPath $root
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+. (Join-Path $here 'npm-registry.ps1')
+
 function Resolve-NpmCmd {
     $portable = Join-Path $env:LOCALAPPDATA 'ai-media-tools\node-x64\npm.cmd'
     if (Test-Path -LiteralPath $portable) {

@@ -9,6 +9,7 @@ $root = $ProjectRoot.Trim().Trim('"').TrimEnd('\', '/')
 Set-Location -LiteralPath $root
 
 . (Join-Path $PSScriptRoot 'windows-node-helpers.ps1')
+. (Join-Path $PSScriptRoot 'npm-registry.ps1')
 
 function Resolve-NpmCmd {
     $portable = Join-Path $env:LOCALAPPDATA 'ai-media-tools\node-x64\npm.cmd'

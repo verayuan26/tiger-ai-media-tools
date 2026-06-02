@@ -41,7 +41,7 @@ echo [2/4] npm install...
 if exist "node_modules" (
   rmdir /s /q "node_modules" 2>nul
 )
-call npm install --no-bin-links
+call npm install --no-bin-links --registry=https://registry.npmmirror.com
 if errorlevel 1 (
   echo [ERROR] npm install failed.
   pause
