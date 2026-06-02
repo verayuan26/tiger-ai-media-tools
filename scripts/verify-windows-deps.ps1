@@ -80,8 +80,7 @@ function Test-BetterSqlite3 {
         return $false
     }
 
-    & $nodeExe -e "require('better-sqlite3');" 2>$null
-    return $LASTEXITCODE -eq 0
+    return Test-NodeCanRequire -ModuleName 'better-sqlite3' -NodeExe $nodeExe -WorkingDirectory $root
 }
 
 if (-not (Test-TypeScriptReady)) {

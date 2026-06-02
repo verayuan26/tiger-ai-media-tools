@@ -70,13 +70,11 @@ function Test-NodeModuleResolvable {
     param([string]$ModuleName)
 
     $nodeExe = Resolve-NodeExe
-    & $nodeExe -e "require('$ModuleName');" 2>$null
-    return $LASTEXITCODE -eq 0
+    return Test-NodeCanRequire -ModuleName $ModuleName -NodeExe $nodeExe -WorkingDirectory $root
 }
 
 function Get-NodeArch {
-    $nodeExe = Resolve-NodeExe
-    return (& $nodeExe -p 'process.arch' 2>$null | Select-Object -First 1).Trim()
+    return Get-NodeProcessArch -NodeExe (Resolve-NodeExe)
 }
 
 function Get-RollupVersion {
