@@ -30,7 +30,7 @@ import { Slider } from '../components/ui/slider';
 import { Switch } from '../components/ui/switch';
 import type { AiProviderName, ApiProtocol, FallbackTranscribeProvider, TranscriptionMode } from '../../shared/settings';
 import type { CacheStats } from '../../shared/cache';
-import { pickFileFromSystem } from '../lib/pick-directory';
+import { pickDirectoryFromSystem } from '../lib/pick-directory';
 
 export function SettingsPage(): React.JSX.Element {
   const [loading, setLoading] = useState(true);
@@ -180,14 +180,14 @@ export function SettingsPage(): React.JSX.Element {
   async function handlePickFfmpeg(): Promise<void> {
     setPickingFfmpeg(true);
     try {
-      const result = await pickFileFromSystem('可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*');
+      const result = await pickDirectoryFromSystem();
       if (result.status === 'selected') {
         setFfmpegPath(result.path);
       } else if (result.status === 'unavailable') {
-        toast.info('请手动输入 ffmpeg 路径', { description: result.message });
+        toast.info('请手动输入 ffmpeg bin 目录', { description: result.message });
       }
     } catch (error) {
-      toast.error('选择文件失败', { description: error instanceof Error ? error.message : '请稍后重试' });
+      toast.error('选择目录失败', { description: error instanceof Error ? error.message : '请稍后重试' });
     } finally {
       setPickingFfmpeg(false);
     }
@@ -594,9 +594,9 @@ export function SettingsPage(): React.JSX.Element {
 
             <div className="space-y-4">
               <div>
-                <Label htmlFor="ffmpeg-path">ffmpeg 可执行文件路径</Label>
+                <Label htmlFor="ffmpeg-path">ffmpeg bin 目录</Label>
                 <p className="text-xs text-muted-foreground mt-1 mb-2">
-                  留空则使用系统 PATH 中的 ffmpeg。Windows 用户若 ffmpeg 未加入 PATH，请手动填写或点击浏览选择。
+                  指定 ffmpeg 所在的 bin 目录，该目录下的 ffmpeg、ffprobe 等工具将被自动使用。留空则使用系统 PATH。
                 </p>
                 <div className="flex gap-2 mt-2">
                   <Input
@@ -604,7 +604,7 @@ export function SettingsPage(): React.JSX.Element {
                     type="text"
                     value={ffmpegPath}
                     onChange={(event) => setFfmpegPath(event.target.value)}
-                    placeholder="留空使用系统 PATH，例如：C:\ffmpeg\bin\ffmpeg.exe"
+                    placeholder="留空使用系统 PATH，例如：C:\ffmpeg\bin"
                     className="flex-1 font-mono text-sm"
                   />
                   <Button
@@ -629,7 +629,7 @@ export function SettingsPage(): React.JSX.Element {
                     >
                       ffmpeg.org
                     </a>{' '}
-                    下载。
+                    下载后将 bin 目录填入此处。
                   </p>
                 )}
               </div>

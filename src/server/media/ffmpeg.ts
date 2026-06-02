@@ -23,23 +23,28 @@ export const MAX_FRAME_WIDTH = 1920;
 /** JPEG quality for extracted frames (`-q:v 2` ≈ high quality). */
 export const FRAME_JPEG_QUALITY = '2';
 
-export function resolveFFmpegBin(customPath?: string | null): string {
-  const trimmed = customPath?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : 'ffmpeg';
+/**
+ * Resolve the ffmpeg executable path from a configured bin directory.
+ * If binDir is set, returns `<binDir>/ffmpeg[.exe]`; otherwise falls back to
+ * the system PATH command `ffmpeg`.
+ */
+export function resolveFFmpegBin(binDir?: string | null): string {
+  const dir = binDir?.trim();
+  if (!dir) return 'ffmpeg';
+  const exe = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+  return path.join(dir, exe);
 }
 
-export function resolveFFprobeBin(customPath?: string | null): string {
-  const trimmed = customPath?.trim();
-  if (trimmed && trimmed.length > 0) {
-    const dir = path.dirname(trimmed);
-    const base = path.basename(trimmed).toLowerCase();
-    if (base === 'ffmpeg' || base === 'ffmpeg.exe') {
-      const probeName = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe';
-      return path.join(dir, probeName);
-    }
-    return trimmed;
-  }
-  return 'ffprobe';
+/**
+ * Resolve the ffprobe executable path from a configured bin directory.
+ * If binDir is set, returns `<binDir>/ffprobe[.exe]`; otherwise falls back to
+ * the system PATH command `ffprobe`.
+ */
+export function resolveFFprobeBin(binDir?: string | null): string {
+  const dir = binDir?.trim();
+  if (!dir) return 'ffprobe';
+  const exe = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe';
+  return path.join(dir, exe);
 }
 
 export function buildFrameScaleFilter(sourceWidth: number | null | undefined): string | null {
