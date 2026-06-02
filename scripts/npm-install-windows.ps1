@@ -35,9 +35,9 @@ function Invoke-Npm {
     param([string[]]$NpmArguments)
 
     $npmCmd = Resolve-NpmCmd
-    Write-Host "[INFO] npm $($NpmArguments -join ' ')"
-
-    $process = Start-Process -FilePath $npmCmd -ArgumentList $NpmArguments -WorkingDirectory $root -Wait -PassThru -NoNewWindow
+    $allArguments = @(Get-NpmRegistryArguments) + $NpmArguments
+    Write-Host "[INFO] npm $($allArguments -join ' ')"
+    $process = Start-Process -FilePath $npmCmd -ArgumentList $allArguments -WorkingDirectory $root -Wait -PassThru -NoNewWindow
     return $process.ExitCode
 }
 

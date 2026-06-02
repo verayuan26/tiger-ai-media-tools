@@ -55,7 +55,7 @@ function Invoke-NpmInstall {
     $display = ($PackageSpecs -join ' ')
     Write-Host "[INFO] npm install --no-save $display"
 
-    $arguments = @(
+    $arguments = @(Get-NpmRegistryArguments) + @(
         'install',
         '--no-save',
         '--no-bin-links',
@@ -171,7 +171,7 @@ foreach ($entry in $nativeModules) {
 if ($stillMissing.Count -gt 0) {
     Write-Host '[INFO] Retrying with npm install --include=optional ...'
     $npmCmd = Resolve-NpmCmd
-    $process = Start-Process -FilePath $npmCmd -ArgumentList @(
+    $process = Start-Process -FilePath $npmCmd -ArgumentList @(Get-NpmRegistryArguments) + @(
         'install',
         '--include=optional',
         '--no-bin-links',
