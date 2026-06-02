@@ -43,7 +43,7 @@ export async function pickFile(filterDescription?: string): Promise<string> {
       '$owner.Hide()',
       '$dialog = New-Object System.Windows.Forms.OpenFileDialog',
       `$dialog.Filter = '${escapedFilter}'`,
-      '$dialog.Title = \'选择文件\'',
+      "$dialog.Title = '选择文件'",
       '$result = $dialog.ShowDialog($owner)',
       '$owner.Dispose()',
       'if ($result -eq [System.Windows.Forms.DialogResult]::OK) {',
@@ -52,30 +52,9 @@ export async function pickFile(filterDescription?: string): Promise<string> {
     ].join('; ');
 
     try {
-      const { stdout } = await execFileAsync('powershell.exe', [
-        '-NoProfile',
-        '-STA',
-        '-Command',
-        script
-      ], { encoding: 'utf8' });
-      const picked = stdout.trim();
-      if (!picked) {
-        throw new DirectoryPickerCancelledError();
-      }
-      return picked;
-    } catch (error) {
-      if (error instanceof DirectoryPickerCancelledError) throw error;
-      if (isUserCancelled(error)) throw new DirectoryPickerCancelledError();
-      throw error;
-    }
-  }
-
-  if (process.platform === 'darwin') {
-    try {
-      const { stdout } = await execFileAsync('osascript', [
-        '-e',
-        'POSIX path of (choose file with prompt "选择文件")'
-      ]);
+      const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-STA', '-Command', script], {
+        encoding: 'utf8'
+      });
       const picked = stdout.trim();
       if (!picked) throw new DirectoryPickerCancelledError();
       return picked;
@@ -86,10 +65,23 @@ export async function pickFile(filterDescription?: string): Promise<string> {
     }
   }
 
-  throw new DirectoryPickerUnavailableError(
-    '当前平台不支持文件选择对话框，请手动输入路径'
-  );
+  if (process.platform === 'darwin') {
+    try {
+      const { stdout } = await execFileAsync('osascript', ['-e', 'POSIX path of (choose file with prompt "选择文件")']);
+      const picked = stdout.trim();
+      if (!picked) throw new DirectoryPickerCancelledError();
+      return picked;
+    } catch (error) {
+      if (error instanceof DirectoryPickerCancelledError) throw error;
+      if (isUserCancelled(error)) throw new DirectoryPickerCancelledError();
+      throw error;
+    }
+  }
+
+  throw new DirectoryPickerUnavailableError('当前平台不支持文件选择对话框，请手动输入路径');
 }
+
+export async function pickDirectory(prompt = '选择素材目录'): Promise<string> {
   if (process.platform === 'darwin') {
     const escapedPrompt = prompt.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     try {
@@ -98,24 +90,17 @@ export async function pickFile(filterDescription?: string): Promise<string> {
         `POSIX path of (choose folder with prompt "${escapedPrompt}")`
       ]);
       const picked = stdout.trim();
-      if (!picked) {
-        throw new DirectoryPickerCancelledError();
-      }
+      if (!picked) throw new DirectoryPickerCancelledError();
       return picked.endsWith('/') ? picked.slice(0, -1) : picked;
     } catch (error) {
       if (error instanceof DirectoryPickerCancelledError) throw error;
-      if (isUserCancelled(error)) {
-        throw new DirectoryPickerCancelledError();
-      }
+      if (isUserCancelled(error)) throw new DirectoryPickerCancelledError();
       throw error;
     }
   }
 
   if (process.platform === 'win32') {
     const escapedPrompt = prompt.replace(/'/g, "''");
-    // Use a TopMost invisible owner form so the dialog always appears in front.
-    // -STA is required for WinForms; -NonInteractive must NOT be used here as it
-    // explicitly prevents interactive dialogs from appearing.
     const script = [
       '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
       '$OutputEncoding = [System.Text.Encoding]::UTF8',
@@ -138,43 +123,27 @@ export async function pickFile(filterDescription?: string): Promise<string> {
     ].join('; ');
 
     try {
-      const { stdout } = await execFileAsync('powershell.exe', [
-        '-NoProfile',
-        '-STA',
-        '-Command',
-        script
-      ], { encoding: 'utf8' });
+      const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-STA', '-Command', script], {
+        encoding: 'utf8'
+      });
       const picked = stdout.trim();
-      if (!picked) {
-        throw new DirectoryPickerCancelledError();
-      }
+      if (!picked) throw new DirectoryPickerCancelledError();
       return picked;
     } catch (error) {
       if (error instanceof DirectoryPickerCancelledError) throw error;
-      if (isUserCancelled(error)) {
-        throw new DirectoryPickerCancelledError();
-      }
+      if (isUserCancelled(error)) throw new DirectoryPickerCancelledError();
       throw error;
     }
   }
 
   try {
-    const { stdout } = await execFileAsync('zenity', [
-      '--file-selection',
-      '--directory',
-      '--title',
-      prompt
-    ]);
+    const { stdout } = await execFileAsync('zenity', ['--file-selection', '--directory', '--title', prompt]);
     const picked = stdout.trim();
-    if (!picked) {
-      throw new DirectoryPickerCancelledError();
-    }
+    if (!picked) throw new DirectoryPickerCancelledError();
     return picked;
   } catch (error) {
     if (error instanceof DirectoryPickerCancelledError) throw error;
-    if (isUserCancelled(error)) {
-      throw new DirectoryPickerCancelledError();
-    }
+    if (isUserCancelled(error)) throw new DirectoryPickerCancelledError();
 
     const err = error as NodeJS.ErrnoException;
     if (err.code === 'ENOENT') {
