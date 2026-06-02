@@ -67,6 +67,32 @@ function Test-WindowsRollupNative {
     return Test-NodeCanRequire -ModuleName $nativeName -NodeExe $nodeExe -WorkingDirectory $root
 }
 
+function Test-LightningCssNative {
+    if ($env:OS -notmatch 'Windows') {
+        return $true
+    }
+
+    if (-not (Test-PackagePresent 'lightningcss')) {
+        return $true
+    }
+
+    $nodeExe = $env:NODE_X64_EXE
+    if (-not $nodeExe -or -not (Test-Path -LiteralPath $nodeExe)) {
+        $nodeExe = (Get-Command node -ErrorAction SilentlyContinue).Source
+    }
+    if (-not $nodeExe) {
+        return $false
+    }
+
+    $arch = Get-NodeProcessArch -NodeExe $nodeExe
+    $nativeName = switch ($arch) {
+        'arm64' { 'lightningcss-win32-arm64-msvc' }
+        default { 'lightningcss-win32-x64-msvc' }
+    }
+
+    return Test-NodeCanRequire -ModuleName $nativeName -NodeExe $nodeExe -WorkingDirectory $root
+}
+
 function Test-BetterSqlite3 {
     if (-not (Test-PackagePresent 'better-sqlite3')) {
         return $false
@@ -95,6 +121,11 @@ if (-not (Test-ViteReady)) {
 
 if (-not (Test-WindowsRollupNative)) {
     Write-Host '[VERIFY] rollup Windows native binary missing (@rollup/rollup-win32-x64-msvc)'
+    exit 2
+}
+
+if (-not (Test-LightningCssNative)) {
+    Write-Host '[VERIFY] lightningcss Windows native binary missing (lightningcss-win32-x64-msvc)'
     exit 2
 }
 

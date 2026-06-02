@@ -82,6 +82,26 @@ function Discover-AllNativeModules {
         }
     }
 
+    # --- lightningcss ---
+    $lightningcssVersion = Get-PackageVersion -PkgJsonPath (Join-Path $root 'node_modules\lightningcss\package.json')
+    if ($lightningcssVersion) {
+        $lightningcssNative = switch ($arch) {
+            'arm64' { 'lightningcss-win32-arm64-msvc' }
+            default { 'lightningcss-win32-x64-msvc' }
+        }
+        $lightningcssNodeFile = switch ($arch) {
+            'arm64' { 'lightningcss.win32-arm64-msvc.node' }
+            default { 'lightningcss.win32-x64-msvc.node' }
+        }
+        $modules += @{
+            Module    = $lightningcssNative
+            Spec      = "$lightningcssNative@$lightningcssVersion"
+            CheckType = 'file'
+            CheckFile = $lightningcssNodeFile
+            DestDir   = Join-Path $root "node_modules\$lightningcssNative"
+        }
+    }
+
     # --- esbuild (top-level + all nested) ---
     $esbuildBin    = if ($arch -eq 'arm64') { 'esbuild' } else { 'esbuild.exe' }
     $esbuildNative = if ($arch -eq 'arm64') { 'win32-arm64' } else { 'win32-x64' }
