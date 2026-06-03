@@ -181,6 +181,19 @@ export function openDatabase(dbPath: string): LibraryDatabase {
       9,
       new Date().toISOString()
     );
+    appliedVersions.add(9);
+  }
+
+  if (!appliedVersions.has(10)) {
+    const columns = db.prepare('pragma table_info(app_settings)').all() as Array<{ name: string }>;
+    const names = new Set(columns.map((column) => column.name));
+    if (!names.has('api_proxy_url')) {
+      db.exec(`alter table app_settings add column api_proxy_url text not null default ''`);
+    }
+    db.prepare('insert into schema_migrations (version, applied_at) values (?, ?)').run(
+      10,
+      new Date().toISOString()
+    );
   }
 
   return db;

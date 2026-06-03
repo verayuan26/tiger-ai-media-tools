@@ -98,6 +98,7 @@ AI_MEDIA_DATA_DIR=.data/e2e AI_PROVIDER=mock AI_MEDIA_ENABLE_DEV_ROUTES=1 npm ru
 - `AI_PROVIDER`：AI provider 名称，默认 `mock`；也可切换到 OpenAI-compatible provider。
 - `AI_API_PROTOCOL`：首次建库时的协议类型，默认 `openai`；可选 `gemini`（与设置页「协议类型」一致，仅初始化 SQLite 时生效）。
 - `AI_OPENAI_BASE_URL`：云端 API 地址。OpenAI 默认 `https://api.openai.com/v1`；Gemini 可用 `https://generativelanguage.googleapis.com/v1beta`（`AI_API_PROTOCOL=gemini` 时未设置则自动使用该默认）。
+- `AI_API_PROXY_URL`：云端 AI 请求的 HTTP 代理（如 `http://127.0.0.1:7890`）。留空则使用系统环境变量 `HTTP_PROXY` / `HTTPS_PROXY`；设置页保存的值会写入 SQLite 并优先于环境变量。
 - `AI_OPENAI_API_KEY`：OpenAI-compatible API key。
 - `AI_OPENAI_VISION_MODEL`：视觉/图片标签模型名。
 - `AI_OPENAI_TRANSCRIBE_MODEL`：音频转写模型名。
@@ -113,7 +114,7 @@ AI_MEDIA_DATA_DIR=.data/e2e AI_PROVIDER=mock AI_MEDIA_ENABLE_DEV_ROUTES=1 npm ru
 ## 设置 API（二期-D）
 
 - `GET /api/settings`：读取持久化设置（API Key 仅返回是否已配置）。
-- `PATCH /api/settings`：保存协议、端点、Key、预算、并发等。
+- `PATCH /api/settings`：保存协议、端点、代理、Key、预算、并发等。
 - `POST /api/settings/test-ai`：真实探测 AI 可达性（mock 直接成功；OpenAI 兼容调用 `/models`；Gemini 调用 `/v1beta/models`）。
 
 ### Google Gemini（云端视觉 + 转写）

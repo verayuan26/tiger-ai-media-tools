@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { lookup } from 'mime-types';
+import { aiFetch } from './httpClient';
 import type { AiProvider, ImageAnalysisResult, TranscriptResult, VisualTagResult } from './provider';
 
 export interface GeminiProviderConfig {
@@ -8,12 +9,14 @@ export interface GeminiProviderConfig {
   apiKey: string;
   visionModel: string;
   transcribeModel: string;
+  proxyUrl?: string;
 }
 
 export interface GeminiTranscriptionConfig {
   baseUrl: string;
   apiKey: string;
   transcribeModel: string;
+  proxyUrl?: string;
 }
 
 const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
@@ -52,10 +55,14 @@ export function normalizeGeminiBaseUrl(baseUrl: string): string {
 export async function pingGeminiProvider(config: GeminiProviderConfig): Promise<void> {
   validateConfig(config);
   const baseUrl = normalizeGeminiBaseUrl(config.baseUrl);
-  const response = await fetch(`${baseUrl}/models`, {
-    method: 'GET',
-    headers: geminiHeaders(config.apiKey)
-  });
+  const response = await aiFetch(
+    `${baseUrl}/models`,
+    {
+      method: 'GET',
+      headers: geminiHeaders(config.apiKey)
+    },
+    config.proxyUrl
+  );
 
   assertOkResponse(response, 'Gemini connectivity check failed');
 }
@@ -103,7 +110,8 @@ export function createGeminiProvider(config: GeminiProviderConfig): AiProvider {
   const transcriptionConfig: GeminiTranscriptionConfig = {
     baseUrl: config.baseUrl,
     apiKey: config.apiKey,
-    transcribeModel: config.transcribeModel
+    transcribeModel: config.transcribeModel,
+    proxyUrl: config.proxyUrl
   };
 
   return {
@@ -136,19 +144,23 @@ async function generateGeminiContent(
 ): Promise<string> {
   const baseUrl = normalizeGeminiBaseUrl(config.baseUrl);
   const modelId = normalizeGeminiModelId(model);
-  const response = await fetch(`${baseUrl}/models/${modelId}:generateContent`, {
-    method: 'POST',
-    headers: {
-      ...geminiHeaders(config.apiKey),
-      'Content-Type': 'application/json'
+  const response = await aiFetch(
+    `${baseUrl}/models/${modelId}:generateContent`,
+    {
+      method: 'POST',
+      headers: {
+        ...geminiHeaders(config.apiKey),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts }],
+        generationConfig: {
+          responseMimeType: 'application/json'
+        }
+      })
     },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts }],
-      generationConfig: {
-        responseMimeType: 'application/json'
-      }
-    })
-  });
+    config.proxyUrl
+  );
 
   await assertOkResponseWithBody(response, 'Gemini generateContent request failed');
   const body = (await response.json()) as GeminiGenerateContentResponse;
@@ -254,7 +266,8 @@ function assertTranscriptionConfig(config: GeminiTranscriptionConfig): void {
 
 function validateConfig(config: GeminiProviderConfig): void {
   for (const [key, label] of REQUIRED_CONFIG) {
-    if (config[key].trim().length === 0) {
+    const value = config[key];
+    if (typeof value !== 'string' || value.trim().length === 0) {
       throw new Error(`${label} is required to create the Gemini AI provider.`);
     }
   }

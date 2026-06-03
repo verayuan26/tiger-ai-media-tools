@@ -1,5 +1,6 @@
 import type { FallbackTranscriptionConfig } from '../ai/transcriptionFallbackConfig';
 import { parseFallbackTranscribeProvider } from '../ai/transcriptionFallbackConfig';
+import { clearHttpDispatcherCache } from '../ai/httpClient';
 import { normalizeGeminiBaseUrl } from '../ai/geminiProvider';
 import { normalizeOpenAiCompatibleBaseUrl } from '../ai/openAiCompatibleProvider';
 import { normalizeDashScopeApiBaseUrl } from '../ai/dashscopeAsrProvider';
@@ -22,6 +23,7 @@ export interface SettingsSeed {
   aiProviderName: AiProviderName;
   apiProtocol?: ApiProtocol;
   apiEndpoint: string;
+  apiProxyUrl?: string;
   apiKey: string;
   openAiVisionModel: string;
   openAiTranscribeModel: string;
@@ -39,6 +41,7 @@ export interface ResolvedAiCredentials {
   apiKey: string;
   visionModel: string;
   transcribeModel: string;
+  proxyUrl: string;
 }
 
 export function createSettingsRepository(db: LibraryDatabase, seed: SettingsSeed) {
@@ -62,6 +65,7 @@ export function createSettingsRepository(db: LibraryDatabase, seed: SettingsSeed
         `update app_settings
          set api_protocol = ?,
              api_endpoint = ?,
+             api_proxy_url = ?,
              api_key = ?,
              ai_provider_name = ?,
              open_ai_vision_model = ?,
@@ -86,6 +90,9 @@ export function createSettingsRepository(db: LibraryDatabase, seed: SettingsSeed
               (input.apiProtocol ?? String(current.api_protocol)) as ApiProtocol
             )
           : String(current.api_endpoint),
+        input.apiProxyUrl !== undefined
+          ? input.apiProxyUrl.trim()
+          : String(current.api_proxy_url ?? ''),
         nextApiKey,
         input.aiProviderName ?? String(current.ai_provider_name),
         input.openAiVisionModel !== undefined
@@ -127,6 +134,7 @@ export function createSettingsRepository(db: LibraryDatabase, seed: SettingsSeed
         SETTINGS_ID
       );
 
+      clearHttpDispatcherCache();
       return mapPublic(readRow(db));
     },
 
@@ -141,7 +149,12 @@ export function createSettingsRepository(db: LibraryDatabase, seed: SettingsSeed
       const transcribeModel =
         overrides.transcribeModel?.trim() || String(row.open_ai_transcribe_model ?? '').trim();
 
-      return { aiProviderName, baseUrl, apiKey, visionModel, transcribeModel };
+      const proxyUrl =
+        overrides.proxyUrl !== undefined
+          ? overrides.proxyUrl.trim()
+          : String(row.api_proxy_url ?? '').trim();
+
+      return { aiProviderName, baseUrl, apiKey, visionModel, transcribeModel, proxyUrl };
     },
 
     resolveFallbackTranscribeCredentials(): FallbackTranscriptionConfig | null {
@@ -163,7 +176,8 @@ export function createSettingsRepository(db: LibraryDatabase, seed: SettingsSeed
           provider,
           apiBaseUrl: normalizeDashScopeApiBaseUrl(String(row.fallback_transcribe_endpoint ?? '')),
           apiKey: fallbackApiKey,
-          transcribeModel
+          transcribeModel,
+          proxyUrl: String(row.api_proxy_url ?? '').trim()
         };
       }
 
@@ -181,7 +195,8 @@ export function createSettingsRepository(db: LibraryDatabase, seed: SettingsSeed
             endpoint || String(row.api_endpoint ?? '') || 'https://generativelanguage.googleapis.com/v1beta'
           ),
           apiKey,
-          transcribeModel
+          transcribeModel,
+          proxyUrl: String(row.api_proxy_url ?? '').trim()
         };
       }
 
@@ -200,7 +215,8 @@ export function createSettingsRepository(db: LibraryDatabase, seed: SettingsSeed
         provider: 'openai-compatible',
         baseUrl: normalizeOpenAiCompatibleBaseUrl(endpoint),
         apiKey,
-        transcribeModel
+        transcribeModel,
+        proxyUrl: String(row.api_proxy_url ?? '').trim()
       };
     },
 
@@ -240,19 +256,20 @@ function ensureRow(db: LibraryDatabase, seed: SettingsSeed): void {
   const today = todayKey();
   db.prepare(
     `insert into app_settings (
-       id, api_protocol, api_endpoint, api_key, ai_provider_name,
+       id, api_protocol, api_endpoint, api_proxy_url, api_key, ai_provider_name,
        open_ai_vision_model, open_ai_transcribe_model,
        transcription_mode, fallback_transcribe_provider, fallback_transcribe_endpoint, fallback_transcribe_model,
        fallback_transcribe_api_key,
        daily_budget_yuan, concurrent_tasks, precision_mode_default, reuse_parsed_results,
        daily_spend_cents, spend_day, updated_at
-     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 3, 0, 1, 0, ?, ?)`
+     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 3, 0, 1, 0, ?, ?)`
   ).run(
     SETTINGS_ID,
     seed.apiProtocol ?? 'openai',
     seed.apiProtocol === 'gemini'
       ? normalizeGeminiBaseUrl(seed.apiEndpoint)
       : seed.apiEndpoint,
+    seed.apiProxyUrl ?? '',
     seed.apiKey,
     seed.aiProviderName,
     seed.openAiVisionModel,
@@ -283,6 +300,7 @@ function mapPublic(row: Row): AppSettings {
   return {
     apiProtocol: String(row.api_protocol) as ApiProtocol,
     apiEndpoint: String(row.api_endpoint),
+    apiProxyUrl: String(row.api_proxy_url ?? ''),
     apiKeyConfigured: apiKey.length > 0,
     aiProviderName: String(row.ai_provider_name) as AiProviderName,
     openAiVisionModel: String(row.open_ai_vision_model ?? ''),

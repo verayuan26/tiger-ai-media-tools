@@ -173,6 +173,12 @@ function resolveCredentials(
     'visionModel' in overrides ? overrides.visionModel?.trim() : undefined;
   const transcribeModelOverrideFromLegacy =
     'transcribeModel' in overrides ? overrides.transcribeModel?.trim() : undefined;
+  const proxyOverride =
+    'apiProxyUrl' in overrides
+      ? overrides.apiProxyUrl?.trim()
+      : 'proxyUrl' in overrides
+        ? overrides.proxyUrl?.trim()
+        : undefined;
 
   return {
     aiProviderName: overrides.aiProviderName ?? stored.aiProviderName,
@@ -187,7 +193,8 @@ function resolveCredentials(
       transcribeModelOverride ||
       transcribeModelOverrideFromLegacy ||
       stored.transcribeModel ||
-      config.openAiTranscribeModel
+      config.openAiTranscribeModel,
+    proxyUrl: proxyOverride ?? stored.proxyUrl ?? config.apiProxyUrl
   };
 }
 
@@ -207,7 +214,8 @@ function toOpenAiConfig(resolved: ResolvedAiCredentials): OpenAiCompatibleProvid
     baseUrl: normalizeOpenAiCompatibleBaseUrl(resolved.baseUrl),
     apiKey: resolved.apiKey,
     visionModel: resolved.visionModel,
-    transcribeModel: resolved.transcribeModel
+    transcribeModel: resolved.transcribeModel,
+    proxyUrl: resolved.proxyUrl || undefined
   };
 }
 
@@ -216,7 +224,8 @@ function toGeminiConfig(resolved: ResolvedAiCredentials): GeminiProviderConfig {
     baseUrl: normalizeGeminiBaseUrl(resolved.baseUrl),
     apiKey: resolved.apiKey,
     visionModel: resolved.visionModel,
-    transcribeModel: resolved.transcribeModel
+    transcribeModel: resolved.transcribeModel,
+    proxyUrl: resolved.proxyUrl || undefined
   };
 }
 

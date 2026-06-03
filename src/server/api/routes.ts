@@ -77,6 +77,7 @@ const patchSettingsSchema = z
   .object({
     apiProtocol: apiProtocolSchema.optional(),
     apiEndpoint: z.string().trim().min(1).optional(),
+    apiProxyUrl: z.string().trim().optional(),
     apiKey: z.string().optional(),
     aiProviderName: aiProviderNameSchema.optional(),
     openAiVisionModel: z.string().trim().optional(),
@@ -98,6 +99,7 @@ const patchSettingsSchema = z
 const testAiSchema = z.object({
   apiProtocol: apiProtocolSchema.optional(),
   apiEndpoint: z.string().trim().min(1).optional(),
+  apiProxyUrl: z.string().trim().optional(),
   apiKey: z.string().optional(),
   aiProviderName: aiProviderNameSchema.optional(),
   openAiVisionModel: z.string().trim().min(1).optional(),

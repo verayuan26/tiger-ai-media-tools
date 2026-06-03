@@ -10,6 +10,7 @@ export interface AppConfig {
   port: number;
   aiProviderName: z.infer<typeof aiProviderNameSchema>;
   apiProtocol: ApiProtocol;
+  apiProxyUrl: string;
   enableDevRoutes: boolean;
   openAiBaseUrl: string;
   openAiApiKey: string;
@@ -30,6 +31,7 @@ export function loadConfig(overrides: ConfigOverrides = {}): AppConfig {
     port: overrides.port ?? Number(process.env.AI_MEDIA_PORT ?? 8787),
     aiProviderName: overrides.aiProviderName ?? (envProviderName.success ? envProviderName.data : 'mock'),
     apiProtocol,
+    apiProxyUrl: overrides.apiProxyUrl ?? process.env.AI_API_PROXY_URL?.trim() ?? '',
     enableDevRoutes: overrides.enableDevRoutes ?? process.env.AI_MEDIA_ENABLE_DEV_ROUTES === '1',
     openAiBaseUrl:
       overrides.openAiBaseUrl ??

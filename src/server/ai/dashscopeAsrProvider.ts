@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { aiFetch } from './httpClient';
 import type { TranscriptResult } from './provider';
 import {
   isNoValidSpeechFragment,
@@ -10,6 +11,7 @@ export interface DashScopeAsrConfig {
   apiBaseUrl: string;
   apiKey: string;
   transcribeModel: string;
+  proxyUrl?: string;
 }
 
 const DEFAULT_API_BASE_URL = 'https://dashscope.aliyuncs.com/api/v1';
@@ -60,11 +62,22 @@ export async function transcribeAudioWithDashScopeAsr(
   assertConfig(config);
 
   const apiBaseUrl = normalizeDashScopeApiBaseUrl(config.apiBaseUrl);
-  const fileUrl = await uploadLocalAudio(config.apiKey, config.transcribeModel, input.audioPath, apiBaseUrl);
+  const fileUrl = await uploadLocalAudio(
+    config.apiKey,
+    config.transcribeModel,
+    input.audioPath,
+    apiBaseUrl,
+    config.proxyUrl
+  );
   const taskId = await submitTranscriptionTask(apiBaseUrl, config, fileUrl);
   try {
-    const transcriptionUrl = await pollTranscriptionTask(apiBaseUrl, config.apiKey, taskId);
-    const transcriptionJson = await fetchJson(transcriptionUrl);
+    const transcriptionUrl = await pollTranscriptionTask(
+      apiBaseUrl,
+      config.apiKey,
+      taskId,
+      config.proxyUrl
+    );
+    const transcriptionJson = await fetchJson(transcriptionUrl, config.proxyUrl);
     return parseDashScopeTranscription(transcriptionJson);
   } catch (error) {
     if (error instanceof TranscriptionNoSpeechError) {
@@ -100,16 +113,23 @@ function usesFileUrlsArray(model: string): boolean {
   );
 }
 
-async function uploadLocalAudio(apiKey: string, model: string, audioPath: string, apiBaseUrl: string): Promise<string> {
+async function uploadLocalAudio(
+  apiKey: string,
+  model: string,
+  audioPath: string,
+  apiBaseUrl: string,
+  proxyUrl?: string
+): Promise<string> {
   const uploadsUrl = dashScopeUploadsUrl(apiBaseUrl);
-  const policyResponse = await fetch(
+  const policyResponse = await aiFetch(
     `${uploadsUrl}?action=getPolicy&model=${encodeURIComponent(model)}`,
     {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${apiKey}`
       }
-    }
+    },
+    proxyUrl
   );
 
   if (!policyResponse.ok) {
@@ -139,10 +159,14 @@ async function uploadLocalAudio(apiKey: string, model: string, audioPath: string
   formData.set('success_action_status', '200');
   formData.set('file', new Blob([fileBuffer]), fileName);
 
-  const uploadResponse = await fetch(policy.upload_host, {
-    method: 'POST',
-    body: formData
-  });
+  const uploadResponse = await aiFetch(
+    policy.upload_host,
+    {
+      method: 'POST',
+      body: formData
+    },
+    proxyUrl
+  );
 
   if (!uploadResponse.ok) {
     throw new Error(
@@ -159,24 +183,28 @@ async function submitTranscriptionTask(
   fileUrl: string
 ): Promise<string> {
   const submitUrl = dashScopeTranscriptionSubmitUrl(apiBaseUrl);
-  const response = await fetch(submitUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-      'X-DashScope-Async': 'enable',
-      'X-DashScope-OssResourceResolve': 'enable'
+  const response = await aiFetch(
+    submitUrl,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json',
+        'X-DashScope-Async': 'enable',
+        'X-DashScope-OssResourceResolve': 'enable'
+      },
+      body: JSON.stringify({
+        model: config.transcribeModel,
+        input: buildTranscriptionInput(config.transcribeModel, fileUrl),
+        parameters: {
+          channel_id: [0],
+          enable_itn: false,
+          enable_words: true
+        }
+      })
     },
-    body: JSON.stringify({
-      model: config.transcribeModel,
-      input: buildTranscriptionInput(config.transcribeModel, fileUrl),
-      parameters: {
-        channel_id: [0],
-        enable_itn: false,
-        enable_words: true
-      }
-    })
-  });
+    config.proxyUrl
+  );
 
   if (!response.ok) {
     throw new Error(
@@ -198,7 +226,8 @@ async function submitTranscriptionTask(
 async function pollTranscriptionTask(
   apiBaseUrl: string,
   apiKey: string,
-  taskId: string
+  taskId: string,
+  proxyUrl?: string
 ): Promise<string> {
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt += 1) {
     if (attempt > 0) {
@@ -206,14 +235,18 @@ async function pollTranscriptionTask(
     }
 
     const queryUrl = dashScopeTaskUrl(apiBaseUrl, taskId);
-    const response = await fetch(queryUrl, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'X-DashScope-Async': 'enable',
-        'Content-Type': 'application/json'
-      }
-    });
+    const response = await aiFetch(
+      queryUrl,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'X-DashScope-Async': 'enable',
+          'Content-Type': 'application/json'
+        }
+      },
+      proxyUrl
+    );
 
     if (!response.ok) {
       throw new Error(
@@ -352,8 +385,8 @@ function extractTranscriptionUrl(
   return null;
 }
 
-async function fetchJson(url: string): Promise<unknown> {
-  const response = await fetch(url);
+async function fetchJson(url: string, proxyUrl?: string): Promise<unknown> {
+  const response = await aiFetch(url, {}, proxyUrl);
   if (!response.ok) {
     throw new Error(`百炼转写结果下载失败（HTTP ${response.status}）。`);
   }

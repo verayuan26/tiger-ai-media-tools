@@ -17,6 +17,8 @@ export type FallbackTranscribeProvider = 'openai-compatible' | 'dashscope-asr' |
 export interface AppSettings {
   apiProtocol: ApiProtocol;
   apiEndpoint: string;
+  /** Empty string means use HTTP_PROXY / HTTPS_PROXY from the environment. */
+  apiProxyUrl: string;
   apiKeyConfigured: boolean;
   aiProviderName: AiProviderName;
   openAiVisionModel: string;
@@ -38,6 +40,7 @@ export interface AppSettings {
 export interface AppSettingsPatch {
   apiProtocol?: ApiProtocol;
   apiEndpoint?: string;
+  apiProxyUrl?: string;
   apiKey?: string;
   aiProviderName?: AiProviderName;
   openAiVisionModel?: string;
@@ -57,6 +60,7 @@ export interface AppSettingsPatch {
 export interface TestAiConnectionInput {
   apiProtocol?: ApiProtocol;
   apiEndpoint?: string;
+  apiProxyUrl?: string;
   apiKey?: string;
   aiProviderName?: AiProviderName;
   openAiVisionModel?: string;

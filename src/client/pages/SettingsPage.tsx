@@ -40,6 +40,7 @@ export function SettingsPage(): React.JSX.Element {
   const [concurrentTasks, setConcurrentTasks] = useState([3]);
   const [apiProtocol, setApiProtocol] = useState<ApiProtocol>('openai');
   const [apiEndpoint, setApiEndpoint] = useState('https://api.openai.com/v1');
+  const [apiProxyUrl, setApiProxyUrl] = useState('');
   const [aiProviderName, setAiProviderName] = useState<AiProviderName>('mock');
   const [apiKey, setApiKey] = useState('');
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
@@ -75,6 +76,7 @@ export function SettingsPage(): React.JSX.Element {
       const settings = await getSettings();
       setApiProtocol(settings.apiProtocol);
       setApiEndpoint(settings.apiEndpoint);
+      setApiProxyUrl(settings.apiProxyUrl);
       setAiProviderName(settings.aiProviderName);
       setApiKeyConfigured(settings.apiKeyConfigured);
       setApiKey('');
@@ -111,6 +113,7 @@ export function SettingsPage(): React.JSX.Element {
       const result = await testAiConnection({
         apiProtocol,
         apiEndpoint,
+        apiProxyUrl: apiProxyUrl.trim(),
         aiProviderName,
         openAiVisionModel: openAiVisionModel.trim(),
         openAiTranscribeModel: openAiTranscribeModel.trim(),
@@ -199,6 +202,7 @@ export function SettingsPage(): React.JSX.Element {
       const settings = await patchSettings({
         apiProtocol,
         apiEndpoint,
+        apiProxyUrl: apiProxyUrl.trim(),
         aiProviderName,
         openAiVisionModel: openAiVisionModel.trim(),
         openAiTranscribeModel: openAiTranscribeModel.trim(),
@@ -218,6 +222,7 @@ export function SettingsPage(): React.JSX.Element {
       });
       setApiKeyConfigured(settings.apiKeyConfigured);
       setApiKey('');
+      setApiProxyUrl(settings.apiProxyUrl);
       setOpenAiVisionModel(settings.openAiVisionModel);
       setOpenAiTranscribeModel(settings.openAiTranscribeModel);
       setTranscriptionMode(settings.transcriptionMode);
@@ -339,6 +344,21 @@ export function SettingsPage(): React.JSX.Element {
                   {apiProtocol === 'gemini'
                     ? 'Gemini 官方地址或兼容代理；需支持 /v1beta/models 与 generateContent'
                     : '可以配置为自建代理或第三方服务地址'}
+                </p>
+              </div>
+
+              <div>
+                <Label htmlFor="api-proxy">HTTP 代理（可选）</Label>
+                <Input
+                  id="api-proxy"
+                  type="text"
+                  value={apiProxyUrl}
+                  onChange={(event) => setApiProxyUrl(event.target.value)}
+                  placeholder="http://127.0.0.1:7890"
+                  className="mt-2"
+                />
+                <p className="text-xs text-muted-foreground mt-2">
+                  填写后云端 AI 与备选转写请求经该代理；留空则使用系统环境变量 HTTP_PROXY / HTTPS_PROXY
                 </p>
               </div>
 

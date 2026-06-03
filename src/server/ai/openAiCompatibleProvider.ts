@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { lookup } from 'mime-types';
+import { aiFetch } from './httpClient';
 import type { AiProvider, ImageAnalysisResult, TranscriptResult, VisualTagResult } from './provider';
 import { TranscriptionUnsupportedError } from './transcriptionErrors';
 
@@ -9,12 +10,14 @@ export interface OpenAiCompatibleProviderConfig {
   apiKey: string;
   visionModel: string;
   transcribeModel: string;
+  proxyUrl?: string;
 }
 
 export interface OpenAiTranscriptionConfig {
   baseUrl: string;
   apiKey: string;
   transcribeModel: string;
+  proxyUrl?: string;
 }
 
 const REQUIRED_CONFIG: Array<[keyof OpenAiCompatibleProviderConfig, string]> = [
@@ -40,12 +43,16 @@ export function normalizeOpenAiCompatibleBaseUrl(baseUrl: string): string {
 export async function pingOpenAiCompatibleProvider(config: OpenAiCompatibleProviderConfig): Promise<void> {
   validateConfig(config);
   const baseUrl = normalizeOpenAiCompatibleBaseUrl(config.baseUrl);
-  const response = await fetch(`${baseUrl}/models`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`
-    }
-  });
+  const response = await aiFetch(
+    `${baseUrl}/models`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`
+      }
+    },
+    config.proxyUrl
+  );
 
   assertOkResponse(response, 'OpenAI-compatible connectivity check failed');
 }
@@ -65,13 +72,17 @@ export async function transcribeAudioWithOpenAiCompatible(
   formData.set('file', new Blob([audio], { type: mimeType }), fileName);
 
   const transcriptionUrl = `${baseUrl}/audio/transcriptions`;
-  const response = await fetch(transcriptionUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`
+  const response = await aiFetch(
+    transcriptionUrl,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`
+      },
+      body: formData
     },
-    body: formData
-  });
+    config.proxyUrl
+  );
 
   assertTranscriptionResponse(response, transcriptionUrl);
   const body = (await response.json()) as TranscriptionResponse;
@@ -93,7 +104,8 @@ export function createOpenAiCompatibleProvider(config: OpenAiCompatibleProviderC
   const transcriptionConfig: OpenAiTranscriptionConfig = {
     baseUrl: config.baseUrl,
     apiKey: config.apiKey,
-    transcribeModel: config.transcribeModel
+    transcribeModel: config.transcribeModel,
+    proxyUrl: config.proxyUrl
   };
 
   return {
@@ -101,33 +113,37 @@ export function createOpenAiCompatibleProvider(config: OpenAiCompatibleProviderC
       const baseUrl = normalizeOpenAiCompatibleBaseUrl(config.baseUrl);
       const image = await readFile(imagePath);
       const mimeType = lookup(imagePath) || 'application/octet-stream';
-      const response = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${config.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: config.visionModel,
-          messages: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'text',
-                  text: VISION_TAG_PROMPT
-                },
-                {
-                  type: 'image_url',
-                  image_url: {
-                    url: `data:${mimeType};base64,${image.toString('base64')}`
+      const response = await aiFetch(
+        `${baseUrl}/chat/completions`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${config.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: config.visionModel,
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: VISION_TAG_PROMPT
+                  },
+                  {
+                    type: 'image_url',
+                    image_url: {
+                      url: `data:${mimeType};base64,${image.toString('base64')}`
+                    }
                   }
-                }
-              ]
-            }
-          ]
-        })
-      });
+                ]
+              }
+            ]
+          })
+        },
+        config.proxyUrl
+      );
 
       await assertOkResponseWithBody(response, 'OpenAI-compatible image analysis request failed');
       const body = (await response.json()) as ChatCompletionResponse;
@@ -209,7 +225,8 @@ function assertTranscriptionConfig(config: OpenAiTranscriptionConfig): void {
 
 function validateConfig(config: OpenAiCompatibleProviderConfig): void {
   for (const [key, envName] of REQUIRED_CONFIG) {
-    if (config[key].trim().length === 0) {
+    const value = config[key];
+    if (typeof value !== 'string' || value.trim().length === 0) {
       throw new Error(`${envName} is required to create the OpenAI-compatible AI provider.`);
     }
   }

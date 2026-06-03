@@ -152,7 +152,8 @@ describe('database schema', () => {
         { version: 6 },
         { version: 7 },
         { version: 8 },
-        { version: 9 }
+        { version: 9 },
+        { version: 10 }
       ]);
     } finally {
       second.close();

@@ -17,6 +17,7 @@ export function createApp(overrides: ConfigOverrides = {}) {
     aiProviderName: config.aiProviderName,
     apiProtocol: config.apiProtocol,
     apiEndpoint: config.openAiBaseUrl,
+    apiProxyUrl: config.apiProxyUrl,
     apiKey: config.openAiApiKey,
     openAiVisionModel: config.openAiVisionModel,
     openAiTranscribeModel: config.openAiTranscribeModel,
