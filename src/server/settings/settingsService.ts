@@ -2,11 +2,18 @@ import type { AppConfig } from '../config';
 import type { AiProvider } from '../ai/provider';
 import { createMockAiProvider } from '../ai/mockProvider';
 import {
+  createGeminiProvider,
+  normalizeGeminiBaseUrl,
+  pingGeminiProvider,
+  type GeminiProviderConfig
+} from '../ai/geminiProvider';
+import {
   createOpenAiCompatibleProvider,
   normalizeOpenAiCompatibleBaseUrl,
   pingOpenAiCompatibleProvider,
   type OpenAiCompatibleProviderConfig
 } from '../ai/openAiCompatibleProvider';
+import type { ApiProtocol } from '../../shared/settings';
 import {
   withTranscriptionFallback
 } from '../ai/withTranscriptionFallback';
@@ -48,7 +55,18 @@ export function createSettingsService(config: AppConfig, settingsRepo: SettingsR
         };
       }
 
+      const protocol = resolveApiProtocol(settingsRepo, input);
+
       try {
+        if (protocol === 'gemini') {
+          await pingGeminiProvider(toGeminiConfig(resolved));
+          return {
+            ok: true,
+            provider: 'openai-compatible',
+            message: 'Gemini API 可达，凭证校验通过'
+          };
+        }
+
         await pingOpenAiCompatibleProvider(toOpenAiConfig(resolved));
         return {
           ok: true,
@@ -70,7 +88,11 @@ export function createSettingsService(config: AppConfig, settingsRepo: SettingsR
         return createMockAiProvider();
       }
 
-      const cloudProvider = createOpenAiCompatibleProvider(toOpenAiConfig(resolved));
+      const protocol = settingsRepo.get().apiProtocol;
+      const cloudProvider =
+        protocol === 'gemini'
+          ? createGeminiProvider(toGeminiConfig(resolved))
+          : createOpenAiCompatibleProvider(toOpenAiConfig(resolved));
       const settings = settingsRepo.get();
       const fallback =
         settingsRepo.resolveFallbackTranscribeCredentials() ??
@@ -169,9 +191,29 @@ function resolveCredentials(
   };
 }
 
+function resolveApiProtocol(
+  settingsRepo: SettingsRepository,
+  overrides: TestAiConnectionInput | Partial<ResolvedAiCredentials> = {}
+): ApiProtocol {
+  if ('apiProtocol' in overrides && overrides.apiProtocol) {
+    return overrides.apiProtocol;
+  }
+
+  return settingsRepo.get().apiProtocol;
+}
+
 function toOpenAiConfig(resolved: ResolvedAiCredentials): OpenAiCompatibleProviderConfig {
   return {
     baseUrl: normalizeOpenAiCompatibleBaseUrl(resolved.baseUrl),
+    apiKey: resolved.apiKey,
+    visionModel: resolved.visionModel,
+    transcribeModel: resolved.transcribeModel
+  };
+}
+
+function toGeminiConfig(resolved: ResolvedAiCredentials): GeminiProviderConfig {
+  return {
+    baseUrl: normalizeGeminiBaseUrl(resolved.baseUrl),
     apiKey: resolved.apiKey,
     visionModel: resolved.visionModel,
     transcribeModel: resolved.transcribeModel

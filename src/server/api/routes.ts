@@ -69,9 +69,9 @@ const listJobsSchema = z.object({
 });
 
 const aiProviderNameSchema = z.enum(['mock', 'openai-compatible']);
-const apiProtocolSchema = z.enum(['openai', 'anthropic', 'azure', 'custom']);
+const apiProtocolSchema = z.enum(['openai', 'anthropic', 'azure', 'gemini', 'custom']);
 const transcriptionModeSchema = z.enum(['cloud', 'fallback', 'auto']);
-const fallbackTranscribeProviderSchema = z.enum(['openai-compatible', 'dashscope-asr']);
+const fallbackTranscribeProviderSchema = z.enum(['openai-compatible', 'dashscope-asr', 'gemini']);
 
 const patchSettingsSchema = z
   .object({

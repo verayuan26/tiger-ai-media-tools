@@ -1,10 +1,12 @@
 import type { FallbackTranscribeProvider } from '../../shared/settings';
 import type { OpenAiTranscriptionConfig } from './openAiCompatibleProvider';
 import type { DashScopeAsrConfig } from './dashscopeAsrProvider';
+import type { GeminiTranscriptionConfig } from './geminiProvider';
 
 export type FallbackTranscriptionConfig =
   | ({ provider: 'openai-compatible' } & OpenAiTranscriptionConfig)
-  | ({ provider: 'dashscope-asr' } & DashScopeAsrConfig);
+  | ({ provider: 'dashscope-asr' } & DashScopeAsrConfig)
+  | ({ provider: 'gemini' } & GeminiTranscriptionConfig);
 
 export function parseFallbackTranscribeProvider(value: unknown): FallbackTranscribeProvider {
   const raw = String(value ?? 'dashscope-asr');
@@ -14,6 +16,10 @@ export function parseFallbackTranscribeProvider(value: unknown): FallbackTranscr
 
   if (raw === 'openai-compatible') {
     return 'openai-compatible';
+  }
+
+  if (raw === 'gemini') {
+    return 'gemini';
   }
 
   return 'dashscope-asr';

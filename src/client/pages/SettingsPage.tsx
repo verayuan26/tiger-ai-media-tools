@@ -279,17 +279,34 @@ export function SettingsPage(): React.JSX.Element {
 
               <div>
                 <Label htmlFor="api-protocol">协议类型</Label>
-                <Select value={apiProtocol} onValueChange={(value) => setApiProtocol(value as ApiProtocol)}>
+                <Select
+                  value={apiProtocol}
+                  onValueChange={(value) => {
+                    const protocol = value as ApiProtocol;
+                    setApiProtocol(protocol);
+                    if (protocol === 'gemini') {
+                      setApiEndpoint('https://generativelanguage.googleapis.com/v1beta');
+                      setOpenAiVisionModel((current) => current.trim() || 'gemini-2.0-flash');
+                      setOpenAiTranscribeModel((current) => current.trim() || 'gemini-2.0-flash');
+                    }
+                  }}
+                >
                   <SelectTrigger className="mt-2" id="api-protocol">
                     <SelectValue placeholder="选择协议类型" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="openai">OpenAI</SelectItem>
+                    <SelectItem value="gemini">Google Gemini</SelectItem>
                     <SelectItem value="anthropic">Anthropic Claude</SelectItem>
                     <SelectItem value="azure">Azure OpenAI</SelectItem>
                     <SelectItem value="custom">自定义协议</SelectItem>
                   </SelectContent>
                 </Select>
+                {apiProtocol === 'gemini' ? (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    使用 Google AI Studio API Key，视觉与转写均走 Gemini generateContent 接口
+                  </p>
+                ) : null}
               </div>
 
               <div>
@@ -299,10 +316,18 @@ export function SettingsPage(): React.JSX.Element {
                   type="text"
                   value={apiEndpoint}
                   onChange={(event) => setApiEndpoint(event.target.value)}
-                  placeholder="https://api.openai.com/v1"
+                  placeholder={
+                    apiProtocol === 'gemini'
+                      ? 'https://generativelanguage.googleapis.com/v1beta'
+                      : 'https://api.openai.com/v1'
+                  }
                   className="mt-2"
                 />
-                <p className="text-xs text-muted-foreground mt-2">可以配置为自建代理或第三方服务地址</p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {apiProtocol === 'gemini'
+                    ? 'Gemini 官方地址或兼容代理；需支持 /v1beta/models 与 generateContent'
+                    : '可以配置为自建代理或第三方服务地址'}
+                </p>
               </div>
 
               {aiProviderName === 'openai-compatible' ? (
@@ -314,10 +339,14 @@ export function SettingsPage(): React.JSX.Element {
                       type="text"
                       value={openAiVisionModel}
                       onChange={(event) => setOpenAiVisionModel(event.target.value)}
-                      placeholder="gpt-4o-mini"
+                      placeholder={apiProtocol === 'gemini' ? 'gemini-2.0-flash' : 'gpt-4o-mini'}
                       className="mt-2"
                     />
-                    <p className="text-xs text-muted-foreground mt-2">用于图片/视频关键帧标签分析</p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      {apiProtocol === 'gemini'
+                        ? '用于图片/视频关键帧标签分析（需支持多模态）'
+                        : '用于图片/视频关键帧标签分析'}
+                    </p>
                   </div>
 
                   <div>
@@ -327,10 +356,14 @@ export function SettingsPage(): React.JSX.Element {
                       type="text"
                       value={openAiTranscribeModel}
                       onChange={(event) => setOpenAiTranscribeModel(event.target.value)}
-                      placeholder="whisper-1"
+                      placeholder={apiProtocol === 'gemini' ? 'gemini-2.0-flash' : 'whisper-1'}
                       className="mt-2"
                     />
-                    <p className="text-xs text-muted-foreground mt-2">用于云端音频转写（需 API 支持 /audio/transcriptions）</p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      {apiProtocol === 'gemini'
+                        ? '用于云端音频转写（Gemini 多模态 generateContent）'
+                        : '用于云端音频转写（需 API 支持 /audio/transcriptions）'}
+                    </p>
                   </div>
 
                   <div className="p-4 border rounded-lg space-y-4 bg-muted/30">
@@ -377,6 +410,13 @@ export function SettingsPage(): React.JSX.Element {
                                 if (!fallbackTranscribeModel.trim()) {
                                   setFallbackTranscribeModel('qwen3-asr-flash-filetrans');
                                 }
+                              } else if (provider === 'gemini') {
+                                if (!fallbackTranscribeEndpoint.trim()) {
+                                  setFallbackTranscribeEndpoint('https://generativelanguage.googleapis.com/v1beta');
+                                }
+                                if (!fallbackTranscribeModel.trim()) {
+                                  setFallbackTranscribeModel('gemini-2.0-flash');
+                                }
                               }
                             }}
                           >
@@ -385,6 +425,7 @@ export function SettingsPage(): React.JSX.Element {
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="dashscope-asr">百炼 DashScope ASR</SelectItem>
+                              <SelectItem value="gemini">Google Gemini</SelectItem>
                               <SelectItem value="openai-compatible">OpenAI 兼容（Whisper 接口）</SelectItem>
                             </SelectContent>
                           </Select>
@@ -397,7 +438,9 @@ export function SettingsPage(): React.JSX.Element {
                           <Label htmlFor="fallback-transcribe-endpoint">
                             {fallbackTranscribeProvider === 'dashscope-asr'
                               ? '百炼 API 地址'
-                              : '备选 API 端点'}
+                              : fallbackTranscribeProvider === 'gemini'
+                                ? 'Gemini API 地址'
+                                : '备选 API 端点'}
                           </Label>
                           <Input
                             id="fallback-transcribe-endpoint"
@@ -407,7 +450,9 @@ export function SettingsPage(): React.JSX.Element {
                             placeholder={
                               fallbackTranscribeProvider === 'dashscope-asr'
                                 ? 'https://dashscope.aliyuncs.com/api/v1'
-                                : 'https://api.siliconflow.cn/v1'
+                                : fallbackTranscribeProvider === 'gemini'
+                                  ? 'https://generativelanguage.googleapis.com/v1beta'
+                                  : 'https://api.siliconflow.cn/v1'
                             }
                             className="mt-2"
                           />
@@ -423,7 +468,9 @@ export function SettingsPage(): React.JSX.Element {
                             placeholder={
                               fallbackTranscribeProvider === 'dashscope-asr'
                                 ? 'qwen3-asr-flash-filetrans'
-                                : 'FunAudioLLM/SenseVoiceSmall'
+                                : fallbackTranscribeProvider === 'gemini'
+                                  ? 'gemini-2.0-flash'
+                                  : 'FunAudioLLM/SenseVoiceSmall'
                             }
                             className="mt-2"
                           />

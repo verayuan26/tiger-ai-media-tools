@@ -1,5 +1,6 @@
 import type { FallbackTranscriptionConfig } from '../ai/transcriptionFallbackConfig';
 import { parseFallbackTranscribeProvider } from '../ai/transcriptionFallbackConfig';
+import { normalizeGeminiBaseUrl } from '../ai/geminiProvider';
 import { normalizeOpenAiCompatibleBaseUrl } from '../ai/openAiCompatibleProvider';
 import { normalizeDashScopeApiBaseUrl } from '../ai/dashscopeAsrProvider';
 import type { LibraryDatabase } from './connection';
@@ -78,7 +79,12 @@ export function createSettingsRepository(db: LibraryDatabase, seed: SettingsSeed
          where id = ?`
       ).run(
         input.apiProtocol ?? String(current.api_protocol),
-        input.apiEndpoint ?? String(current.api_endpoint),
+        input.apiEndpoint !== undefined
+          ? normalizeApiEndpoint(
+              input.apiEndpoint.trim(),
+              (input.apiProtocol ?? String(current.api_protocol)) as ApiProtocol
+            )
+          : String(current.api_endpoint),
         nextApiKey,
         input.aiProviderName ?? String(current.ai_provider_name),
         input.openAiVisionModel !== undefined
@@ -92,12 +98,12 @@ export function createSettingsRepository(db: LibraryDatabase, seed: SettingsSeed
           ? input.fallbackTranscribeProvider
           : parseFallbackTranscribeProvider(current.fallback_transcribe_provider),
         input.fallbackTranscribeEndpoint !== undefined
-          ? input.fallbackTranscribeProvider === 'dashscope-asr' ||
-            parseFallbackTranscribeProvider(
-              input.fallbackTranscribeProvider ?? current.fallback_transcribe_provider
-            ) === 'dashscope-asr'
-            ? normalizeDashScopeApiBaseUrl(input.fallbackTranscribeEndpoint.trim())
-            : input.fallbackTranscribeEndpoint.trim()
+          ? normalizeFallbackTranscribeEndpoint(
+              input.fallbackTranscribeEndpoint.trim(),
+              parseFallbackTranscribeProvider(
+                input.fallbackTranscribeProvider ?? current.fallback_transcribe_provider
+              )
+            )
           : String(current.fallback_transcribe_endpoint ?? ''),
         input.fallbackTranscribeModel !== undefined
           ? input.fallbackTranscribeModel.trim()
@@ -156,6 +162,24 @@ export function createSettingsRepository(db: LibraryDatabase, seed: SettingsSeed
           provider,
           apiBaseUrl: normalizeDashScopeApiBaseUrl(String(row.fallback_transcribe_endpoint ?? '')),
           apiKey: fallbackApiKey,
+          transcribeModel
+        };
+      }
+
+      if (provider === 'gemini') {
+        const primaryApiKey = String(row.api_key ?? '').trim();
+        const apiKey = fallbackApiKey || primaryApiKey;
+        if (!apiKey) {
+          return null;
+        }
+
+        const endpoint = String(row.fallback_transcribe_endpoint ?? '').trim();
+        return {
+          provider: 'gemini',
+          baseUrl: normalizeGeminiBaseUrl(
+            endpoint || String(row.api_endpoint ?? '') || 'https://generativelanguage.googleapis.com/v1beta'
+          ),
+          apiKey,
           transcribeModel
         };
       }
@@ -293,6 +317,33 @@ function resetSpendIfNewDay(db: LibraryDatabase): void {
 
 function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function normalizeApiEndpoint(endpoint: string, protocol: ApiProtocol): string {
+  if (protocol === 'gemini') {
+    return normalizeGeminiBaseUrl(endpoint);
+  }
+
+  if (protocol === 'openai' || protocol === 'azure' || protocol === 'custom') {
+    return endpoint.replace(/\/+$/, '');
+  }
+
+  return endpoint.replace(/\/+$/, '');
+}
+
+function normalizeFallbackTranscribeEndpoint(
+  endpoint: string,
+  provider: FallbackTranscribeProvider
+): string {
+  if (provider === 'dashscope-asr') {
+    return normalizeDashScopeApiBaseUrl(endpoint);
+  }
+
+  if (provider === 'gemini') {
+    return normalizeGeminiBaseUrl(endpoint);
+  }
+
+  return endpoint;
 }
 
 function parseTranscriptionMode(value: unknown): TranscriptionMode {

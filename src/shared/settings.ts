@@ -1,7 +1,7 @@
 export type AiProviderName = 'mock' | 'openai-compatible';
-export type ApiProtocol = 'openai' | 'anthropic' | 'azure' | 'custom';
+export type ApiProtocol = 'openai' | 'anthropic' | 'azure' | 'gemini' | 'custom';
 export type TranscriptionMode = 'cloud' | 'fallback' | 'auto';
-export type FallbackTranscribeProvider = 'openai-compatible' | 'dashscope-asr';
+export type FallbackTranscribeProvider = 'openai-compatible' | 'dashscope-asr' | 'gemini';
 
 export interface AppSettings {
   apiProtocol: ApiProtocol;
