@@ -1,6 +1,12 @@
 import { AlertCircle, Clock, FileAudio, FileImage, FileVideo, Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import type { AssetListItem, MediaKind } from '../../../shared/types';
+import {
+  libraryScrollStorageKey,
+  readLibraryScroll,
+  saveLibraryScroll
+} from '../../lib/library-scroll';
 import { getAssetThumbnailUrl } from '../../lib/media-url';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
@@ -8,10 +14,59 @@ import { cn } from '../../lib/utils';
 interface LibraryAssetGridProps {
   assets: AssetListItem[];
   loading: boolean;
+  scrollStorageKey: string;
 }
 
-export function LibraryAssetGrid({ assets, loading }: LibraryAssetGridProps): React.JSX.Element {
+export function LibraryAssetGrid({
+  assets,
+  loading,
+  scrollStorageKey
+}: LibraryAssetGridProps): React.JSX.Element {
   const navigate = useNavigate();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRestoredRef = useRef(false);
+  const sessionKey = libraryScrollStorageKey(scrollStorageKey);
+
+  useEffect(() => {
+    scrollRestoredRef.current = false;
+  }, [sessionKey]);
+
+  useLayoutEffect(() => {
+    if (loading || assets.length === 0 || scrollRestoredRef.current) return;
+
+    const container = scrollRef.current;
+    if (!container) return;
+
+    const savedScrollTop = readLibraryScroll(sessionKey);
+    if (savedScrollTop <= 0) {
+      scrollRestoredRef.current = true;
+      return;
+    }
+
+    const restore = (): void => {
+      container.scrollTop = savedScrollTop;
+    };
+
+    restore();
+    requestAnimationFrame(() => {
+      restore();
+      scrollRestoredRef.current = true;
+    });
+  }, [assets.length, loading, sessionKey]);
+
+  const persistScroll = useCallback(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    saveLibraryScroll(sessionKey, container.scrollTop);
+  }, [sessionKey]);
+
+  const openAsset = useCallback(
+    (assetId: string) => {
+      persistScroll();
+      navigate(`/asset/${assetId}`);
+    },
+    [navigate, persistScroll]
+  );
 
   if (loading && assets.length === 0) {
     return (
@@ -34,7 +89,11 @@ export function LibraryAssetGrid({ assets, loading }: LibraryAssetGridProps): Re
   }
 
   return (
-    <div className="flex-1 overflow-auto p-4 bg-background">
+    <div
+      ref={scrollRef}
+      className="flex-1 overflow-auto p-4 bg-background"
+      onScroll={persistScroll}
+    >
       {loading ? (
         <p className="text-sm text-muted-foreground mb-3 flex items-center gap-2">
           <Loader2 className="size-4 animate-spin" />
@@ -43,7 +102,7 @@ export function LibraryAssetGrid({ assets, loading }: LibraryAssetGridProps): Re
       ) : null}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         {assets.map((asset) => (
-          <AssetCard key={asset.id} asset={asset} onClick={() => navigate(`/asset/${asset.id}`)} />
+          <AssetCard key={asset.id} asset={asset} onClick={() => openAsset(asset.id)} />
         ))}
       </div>
     </div>

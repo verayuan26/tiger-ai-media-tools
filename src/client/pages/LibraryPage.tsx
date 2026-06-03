@@ -22,6 +22,15 @@ export function LibraryPage(): React.JSX.Element {
     [searchQuery, selectedLanguages, selectedTags]
   );
 
+  const scrollStorageKey = useMemo(
+    () =>
+      JSON.stringify({
+        ...serverQuery,
+        fileTypes: selectedFileTypes
+      }),
+    [serverQuery, selectedFileTypes]
+  );
+
   const filteredAssets = useMemo(() => {
     if (selectedFileTypes.length === 0) return assets;
 
@@ -80,7 +89,11 @@ export function LibraryPage(): React.JSX.Element {
         selectedLanguages={selectedLanguages}
         onToggleLanguage={toggleLanguage}
       />
-      <LibraryAssetGrid assets={filteredAssets} loading={loading} />
+      <LibraryAssetGrid
+        assets={filteredAssets}
+        loading={loading}
+        scrollStorageKey={scrollStorageKey}
+      />
     </div>
   );
 }
