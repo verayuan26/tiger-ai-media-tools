@@ -1,5 +1,16 @@
 export type AiProviderName = 'mock' | 'openai-compatible';
 export type ApiProtocol = 'openai' | 'anthropic' | 'azure' | 'gemini' | 'custom';
+
+const API_PROTOCOLS: ApiProtocol[] = ['openai', 'anthropic', 'azure', 'gemini', 'custom'];
+
+export function parseApiProtocol(value: unknown): ApiProtocol | null {
+  const raw = String(value ?? '').trim().toLowerCase();
+  if ((API_PROTOCOLS as string[]).includes(raw)) {
+    return raw as ApiProtocol;
+  }
+
+  return null;
+}
 export type TranscriptionMode = 'cloud' | 'fallback' | 'auto';
 export type FallbackTranscribeProvider = 'openai-compatible' | 'dashscope-asr' | 'gemini';
 

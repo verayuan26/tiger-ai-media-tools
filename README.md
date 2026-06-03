@@ -11,7 +11,8 @@ AI Media Tools 是一个本地优先的 AI 多媒体素材整理 MVP，用来给
 - 扫描导入本地目录，按图片、视频、音频建立素材记录。
 - 任务队列和 `/api/jobs/drain` 处理入口。
 - `mock` AI provider，默认不上传任何素材。
-- OpenAI-compatible provider 边界，后续可接入兼容接口的视觉和转写模型。
+- OpenAI-compatible provider：视觉（chat/completions）与转写（/audio/transcriptions）。
+- **Google Gemini** 协议：视觉与转写均走 `generateContent`（设置页协议选 Gemini）。
 - React UI，用于导入目录、查看素材、筛选标签和处理队列。
 - Fixture demo 和 Playwright E2E，用于验证 MVP 流程。
 
@@ -95,12 +96,13 @@ AI_MEDIA_DATA_DIR=.data/e2e AI_PROVIDER=mock AI_MEDIA_ENABLE_DEV_ROUTES=1 npm ru
 - `AI_MEDIA_DATA_DIR`：本地数据目录，默认 `.data`。SQLite 索引和生成内容会写到这里。
 - `AI_MEDIA_PORT`：Express API 端口，默认 `8787`。
 - `AI_PROVIDER`：AI provider 名称，默认 `mock`；也可切换到 OpenAI-compatible provider。
-- `AI_OPENAI_BASE_URL`：OpenAI-compatible API 地址，默认 `https://api.openai.com/v1`。
+- `AI_API_PROTOCOL`：首次建库时的协议类型，默认 `openai`；可选 `gemini`（与设置页「协议类型」一致，仅初始化 SQLite 时生效）。
+- `AI_OPENAI_BASE_URL`：云端 API 地址。OpenAI 默认 `https://api.openai.com/v1`；Gemini 可用 `https://generativelanguage.googleapis.com/v1beta`（`AI_API_PROTOCOL=gemini` 时未设置则自动使用该默认）。
 - `AI_OPENAI_API_KEY`：OpenAI-compatible API key。
 - `AI_OPENAI_VISION_MODEL`：视觉/图片标签模型名。
 - `AI_OPENAI_TRANSCRIBE_MODEL`：音频转写模型名。
 - `AI_TRANSCRIPTION_MODE`：转写模式。`auto`（默认）先走主端点，若不支持 `/audio/transcriptions`（HTTP 404 等）则降级到备选 Provider；`cloud` 仅主端点；`fallback` 仅备选转写。
-- `AI_FALLBACK_TRANSCRIBE_PROVIDER`：备选 Provider。`dashscope-asr`（百炼 DashScope 异步录音识别，默认）或 `openai-compatible`（Whisper 兼容接口）。
+- `AI_FALLBACK_TRANSCRIBE_PROVIDER`：备选 Provider。`dashscope-asr`（百炼，默认）、`openai-compatible`（Whisper 兼容）、`gemini`（Gemini 多模态转写）。
 - `AI_FALLBACK_TRANSCRIBE_ENDPOINT`：备选 API 地址。百炼默认 `https://dashscope.aliyuncs.com/api/v1`；Whisper 兼容如 `https://api.siliconflow.cn/v1`。
 - `AI_FALLBACK_TRANSCRIBE_MODEL`：备选转写模型。百炼默认 `qwen3-asr-flash-filetrans`。
 - `AI_FALLBACK_TRANSCRIBE_API_KEY`：备选 API Key。百炼必填且与主 Key 独立；Whisper 兼容可留空复用主 Key。
@@ -112,7 +114,26 @@ AI_MEDIA_DATA_DIR=.data/e2e AI_PROVIDER=mock AI_MEDIA_ENABLE_DEV_ROUTES=1 npm ru
 
 - `GET /api/settings`：读取持久化设置（API Key 仅返回是否已配置）。
 - `PATCH /api/settings`：保存协议、端点、Key、预算、并发等。
-- `POST /api/settings/test-ai`：真实探测 AI 可达性（mock 直接成功；openai-compatible 调用 `/models`）。
+- `POST /api/settings/test-ai`：真实探测 AI 可达性（mock 直接成功；OpenAI 兼容调用 `/models`；Gemini 调用 `/v1beta/models`）。
+
+### Google Gemini（云端视觉 + 转写）
+
+1. 设置页 **AI 提供方** 选「OpenAI 兼容 API」，**协议类型** 选 **Google Gemini**。
+2. **API 端点**：`https://generativelanguage.googleapis.com/v1beta`
+3. **API Key**：[Google AI Studio](https://aistudio.google.com/apikey) 密钥
+4. **视觉 / 转写模型**：如 `gemini-2.0-flash`（需支持多模态）
+5. 保存后点「测试连接」，再处理队列
+
+也可通过 `.env` 初始化（仅首次创建 `app_settings` 行时）：
+
+```bash
+AI_PROVIDER=openai-compatible
+AI_API_PROTOCOL=gemini
+AI_OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+AI_OPENAI_API_KEY=your-gemini-key
+AI_OPENAI_VISION_MODEL=gemini-2.0-flash
+AI_OPENAI_TRANSCRIBE_MODEL=gemini-2.0-flash
+```
 - `POST /api/jobs/drain`：超预算或并发上限时返回 `429` 与 `blocked.code`。
 
 ### 语音转写与备选 Provider
@@ -123,6 +144,7 @@ AI_MEDIA_DATA_DIR=.data/e2e AI_PROVIDER=mock AI_MEDIA_ENABLE_DEV_ROUTES=1 npm ru
 - **备选 Provider**：
   - **百炼 DashScope ASR**（推荐）：统一异步录音识别 API，模型填 `qwen3-asr-flash-filetrans`、`fun-asr`、`paraformer-v2` 等
   - **OpenAI 兼容（Whisper 接口）**：适用于硅基流动、OpenAI 官方等
+  - **Google Gemini**：主端点不支持 Whisper 时可作备选转写
 - **百炼 API 地址**：`https://dashscope.aliyuncs.com/api/v1`（北京地域）
 - **备选转写模型**：`qwen3-asr-flash-filetrans`
 - **备选 API Key**：百炼 DashScope Key，与主端点 Key 独立

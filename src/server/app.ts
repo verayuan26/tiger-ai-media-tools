@@ -15,6 +15,7 @@ export function createApp(overrides: ConfigOverrides = {}) {
   const repos = createRepositories(db);
   const settingsRepo = createSettingsRepository(db, {
     aiProviderName: config.aiProviderName,
+    apiProtocol: config.apiProtocol,
     apiEndpoint: config.openAiBaseUrl,
     apiKey: config.openAiApiKey,
     openAiVisionModel: config.openAiVisionModel,
@@ -24,6 +25,7 @@ export function createApp(overrides: ConfigOverrides = {}) {
       (process.env.AI_FALLBACK_TRANSCRIBE_PROVIDER?.trim() as
         | 'openai-compatible'
         | 'dashscope-asr'
+        | 'gemini'
         | undefined) ?? 'dashscope-asr',
     fallbackTranscribeEndpoint:
       process.env.AI_FALLBACK_TRANSCRIBE_ENDPOINT?.trim() ||

@@ -307,6 +307,18 @@ export function SettingsPage(): React.JSX.Element {
                     使用 Google AI Studio API Key，视觉与转写均走 Gemini generateContent 接口
                   </p>
                 ) : null}
+                {apiProtocol === 'openai' || apiProtocol === 'azure' || apiProtocol === 'custom' ? (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    使用 OpenAI 兼容 API（/v1/chat/completions 与 /v1/audio/transcriptions）。Azure
+                    请填写资源对应的 OpenAI 兼容端点。
+                  </p>
+                ) : null}
+                {apiProtocol === 'anthropic' ? (
+                  <p className="text-xs text-amber-600 mt-2">
+                    Anthropic 原生协议尚未接入；当前仍按 OpenAI 兼容格式请求。若使用 Claude，请选择提供
+                    OpenAI 兼容层的代理，或改用 Google Gemini 协议。
+                  </p>
+                ) : null}
               </div>
 
               <div>

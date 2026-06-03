@@ -173,4 +173,21 @@ describe('settings API', () => {
       code: 'concurrent_limit_reached'
     });
   });
+
+  it('seeds gemini protocol from config when creating a new database', async () => {
+    const dataDir = mkdtempSync(path.join(tmpdir(), 'ai-media-settings-gemini-'));
+    const app = createApp({
+      dataDir,
+      aiProviderName: 'mock',
+      apiProtocol: 'gemini',
+      openAiBaseUrl: 'https://generativelanguage.googleapis.com'
+    });
+    apps.push(app);
+
+    const response = await request(app).get('/api/settings').expect(200);
+    expect(response.body.settings).toMatchObject({
+      apiProtocol: 'gemini',
+      apiEndpoint: 'https://generativelanguage.googleapis.com/v1beta'
+    });
+  });
 });

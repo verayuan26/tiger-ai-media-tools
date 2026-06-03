@@ -20,6 +20,7 @@ type Row = Record<string, unknown>;
 
 export interface SettingsSeed {
   aiProviderName: AiProviderName;
+  apiProtocol?: ApiProtocol;
   apiEndpoint: string;
   apiKey: string;
   openAiVisionModel: string;
@@ -245,10 +246,13 @@ function ensureRow(db: LibraryDatabase, seed: SettingsSeed): void {
        fallback_transcribe_api_key,
        daily_budget_yuan, concurrent_tasks, precision_mode_default, reuse_parsed_results,
        daily_spend_cents, spend_day, updated_at
-     ) values (?, 'openai', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 3, 0, 1, 0, ?, ?)`
+     ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 3, 0, 1, 0, ?, ?)`
   ).run(
     SETTINGS_ID,
-    seed.apiEndpoint,
+    seed.apiProtocol ?? 'openai',
+    seed.apiProtocol === 'gemini'
+      ? normalizeGeminiBaseUrl(seed.apiEndpoint)
+      : seed.apiEndpoint,
     seed.apiKey,
     seed.aiProviderName,
     seed.openAiVisionModel,

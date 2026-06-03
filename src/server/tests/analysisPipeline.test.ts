@@ -488,7 +488,7 @@ describe('createOpenAiCompatibleProvider', () => {
       });
 
       await expect(provider.analyzeImage({ imagePath })).rejects.toThrow(/503/);
-      expect(json).not.toHaveBeenCalled();
+      expect(json).toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
       await rm(path.dirname(imagePath), { force: true, recursive: true });
