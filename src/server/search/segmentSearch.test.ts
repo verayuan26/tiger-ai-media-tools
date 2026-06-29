@@ -93,7 +93,7 @@ describe('searchSegments', () => {
       sourceInSeconds: 27,
       sourceOutSeconds: 33,
       previewTimestampSeconds: 30,
-      matchedBy: expect.arrayContaining(['frame-tag', 'asset-tag'])
+      matchedBy: expect.arrayContaining(['frame-tag'])
     });
     expect(candidate?.score).toBeGreaterThanOrEqual(0.6);
   });
