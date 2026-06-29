@@ -3,6 +3,7 @@ import cors from 'cors';
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
 import { ZodError } from 'zod';
 import { createApiRouter, HttpError } from './api/routes';
+import { createSegmentSearchRouter } from './api/segmentSearchRoutes';
 import { loadTranscriptionModeFromEnv } from './ai/withTranscriptionFallback';
 import { loadConfig, type ConfigOverrides } from './config';
 import { openDatabase } from './db/connection';
@@ -50,6 +51,7 @@ export function createApp(overrides: ConfigOverrides = {}) {
   app.use(createLocalCorsMiddleware(allowedOrigins));
   app.use('/api', createApiMutationGuard(allowedOrigins));
   app.use(express.json({ limit: '2mb' }));
+  app.use('/api', createSegmentSearchRouter({ repos }));
   app.use(
     '/api',
     createApiRouter({
