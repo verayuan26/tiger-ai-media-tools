@@ -57,9 +57,16 @@ export interface SegmentSearchResult {
 
 export function searchSegments(repos: Repositories, input: SegmentSearchInput): SegmentSearchResult {
   const excluded = new Set(input.excludeAssetIds ?? []);
-  const assets = repos.assets
-    .searchAssets({ kinds: ['video'] })
-    .filter((asset) => !excluded.has(asset.id) && asset.durationSeconds && asset.durationSeconds > 0);
+  const assets = repos.sources
+    .list()
+    .flatMap((source) => repos.assets.listBySource(source.id))
+    .filter(
+      (asset) =>
+        asset.kind === 'video' &&
+        !excluded.has(asset.id) &&
+        asset.durationSeconds &&
+        asset.durationSeconds > 0
+    );
 
   const matches = input.shots.map((shot) => {
     const queryTerms = buildTerms(shot.queries);
