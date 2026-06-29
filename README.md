@@ -61,6 +61,32 @@ curl -X POST http://127.0.0.1:8787/api/jobs/drain \
   -d '{"limit":25}'
 ```
 
+## 分镜素材片段检索
+
+批量提交分镜要求，返回每个分镜最匹配的视频片段。结果包含原素材路径、命中帧、建议入点/出点、匹配分数、命中原因和人工确认警告。
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/search/segments \
+  -H 'content-type: application/json' \
+  -d '{
+    "shots": [
+      {
+        "shotId": "C007-S04",
+        "queries": ["卡车封车", "整车关门", "车辆出发"],
+        "mustShow": ["封车", "整车"],
+        "avoid": ["小包裹"],
+        "minimumDurationSeconds": 6,
+        "orientation": "vertical"
+      }
+    ],
+    "limitPerShot": 3,
+    "excludeAssetIds": [],
+    "options": { "minimumScore": 0.6 }
+  }'
+```
+
+接口使用现有素材级标签、帧标签和字幕段进行可解释排序。它不会在没有合格素材时强行返回结果；对应分镜会返回 `status: "unmatched"`。当前为第一版透明规则排序，后续应根据真实采用率再决定是否增加语义向量检索。
+
 ## Fixture Demo
 
 生成本地测试素材：
