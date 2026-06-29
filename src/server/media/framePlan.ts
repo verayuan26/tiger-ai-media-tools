@@ -9,7 +9,7 @@ export function planFrameTimestamps(input: FramePlanInput): number[] {
     return [];
   }
 
-  const interval = input.mode === 'precision' ? 3 : input.fallbackIntervalSeconds;
+  const interval = input.mode === 'precision' ? 1 : input.fallbackIntervalSeconds;
   const safeInterval = Math.max(1, Math.floor(interval));
   const duration = Math.floor(input.durationSeconds);
   const timestamps: number[] = [];
