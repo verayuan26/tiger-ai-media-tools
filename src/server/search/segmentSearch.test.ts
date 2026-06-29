@@ -36,8 +36,11 @@ function makeRepos(input: {
   transcripts?: TranscriptSegment[];
 }): Repositories {
   return {
+    sources: {
+      list: () => [{ id: 'source_1' }]
+    },
     assets: {
-      searchAssets: () => input.assets ?? [makeAsset()]
+      listBySource: () => input.assets ?? [makeAsset()]
     },
     frames: {
       listForAsset: () =>
